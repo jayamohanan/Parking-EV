@@ -376,6 +376,11 @@
         loadLevel(levelData) {
             console.log('Loading level:', levelData);
             
+            // Draw parking and road if they exist in level data
+            if (levelData.parking && levelData.road) {
+                this.drawParkingAndRoad(levelData.parking, levelData.road);
+            }
+            
             // Spawn cars from level data
             for (let carData of levelData.cars) {
                 this.spawnCar(carData);
@@ -386,6 +391,54 @@
             
             // Start charging system
             this.startCharging();
+        }
+        
+        drawParkingAndRoad(parkingData, roadData) {
+            const sceneWidth = this.cameras.main.width;
+            const sceneHeight = this.cameras.main.height;
+            const parkingAreaHeight = sceneHeight * 0.5;
+            
+            // Center position for parking area (in top half)
+            const centerX = sceneWidth / 2;
+            const centerY = parkingAreaHeight / 2 + 30; // Slightly below center to account for title
+            
+            // Calculate road dimensions
+            const roadWidth = parkingData.width + (roadData.halfWidth * 2);
+            const roadHeight = parkingData.height + (roadData.halfWidth * 2);
+            
+            // Draw road surface (thick stroke)
+            const roadGraphics = this.add.graphics();
+            roadGraphics.lineStyle(roadData.thickness, roadData.fillColor, roadData.fillAlpha);
+            roadGraphics.strokeRect(
+                centerX - roadWidth / 2,
+                centerY - roadHeight / 2,
+                roadWidth,
+                roadHeight
+            );
+            roadGraphics.setDepth(1);
+            
+            // Draw road center line
+            const roadCenterGraphics = this.add.graphics();
+            roadCenterGraphics.lineStyle(2, roadData.color, 1);
+            roadCenterGraphics.strokeRect(
+                centerX - roadWidth / 2,
+                centerY - roadHeight / 2,
+                roadWidth,
+                roadHeight
+            );
+            roadCenterGraphics.setDepth(2);
+            
+            // Draw parking area rectangle
+            const parkingRect = this.add.rectangle(
+                centerX,
+                centerY,
+                parkingData.width,
+                parkingData.height,
+                parkingData.color,
+                parkingData.alpha
+            );
+            parkingRect.setStrokeStyle(parkingData.borderWidth, parkingData.borderColor);
+            parkingRect.setDepth(3);
         }
 
         spawnCar(carData) {

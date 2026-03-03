@@ -14,8 +14,15 @@ class LevelEditorScene extends Phaser.Scene {
         // Parking and road dimensions (from config, can be adjusted)
         this.parkingWidth = CONFIG.EDITOR.PARKING_WIDTH;
         this.parkingHeight = CONFIG.EDITOR.PARKING_HEIGHT;
-        this.roadOffset = CONFIG.EDITOR.ROAD_OFFSET;
+        this.roadHalfWidth = CONFIG.EDITOR.ROAD_HALF_WIDTH;
         this.roadThickness = CONFIG.EDITOR.ROAD_THICKNESS;
+        
+        // Colors and transparency
+        this.parkingColor = CONFIG.EDITOR.PARKING_COLOR;
+        this.parkingAlpha = CONFIG.EDITOR.PARKING_ALPHA;
+        this.roadColor = CONFIG.EDITOR.ROAD_COLOR;
+        this.roadFillColor = CONFIG.EDITOR.ROAD_FILL_COLOR;
+        this.roadFillAlpha = CONFIG.EDITOR.ROAD_FILL_ALPHA;
     }
 
     preload() {
@@ -72,15 +79,14 @@ class LevelEditorScene extends Phaser.Scene {
         const centerX = sceneWidth / 2;
         const centerY = editorHeight / 2 + 30; // Slightly below center to account for title
         
-        // Calculate road dimensions (road rectangle is offset from parking by roadOffset)
-        const roadWidth = this.parkingWidth + (this.roadOffset * 2);
-        const roadHeight = this.parkingHeight + (this.roadOffset * 2);
+        // Calculate road dimensions (road rectangle center is roadHalfWidth from parking edge)
+        const roadWidth = this.parkingWidth + (this.roadHalfWidth * 2);
+        const roadHeight = this.parkingHeight + (this.roadHalfWidth * 2);
         
         // Draw road first (as thick rectangle)
-        // The road extends roadThickness/2 on both sides of the road rectangle
-        // So inner edge touches parking, outer edge extends outward
+        // The road extends roadThickness/2 on both sides of the road rectangle center line
         const roadGraphics = this.add.graphics();
-        roadGraphics.lineStyle(this.roadThickness, CONFIG.EDITOR.ROAD_FILL_COLOR, CONFIG.EDITOR.ROAD_FILL_ALPHA);
+        roadGraphics.lineStyle(this.roadThickness, this.roadFillColor, this.roadFillAlpha);
         roadGraphics.strokeRect(
             centerX - roadWidth / 2,
             centerY - roadHeight / 2,
@@ -91,7 +97,7 @@ class LevelEditorScene extends Phaser.Scene {
         
         // Draw road center line (for reference)
         const roadCenterGraphics = this.add.graphics();
-        roadCenterGraphics.lineStyle(2, CONFIG.EDITOR.ROAD_COLOR, 1);
+        roadCenterGraphics.lineStyle(2, this.roadColor, 1);
         roadCenterGraphics.strokeRect(
             centerX - roadWidth / 2,
             centerY - roadHeight / 2,
@@ -106,7 +112,8 @@ class LevelEditorScene extends Phaser.Scene {
             centerY,
             this.parkingWidth,
             this.parkingHeight,
-            CONFIG.EDITOR.PARKING_COLOR
+            this.parkingColor,
+            this.parkingAlpha
         );
         parkingRect.setStrokeStyle(CONFIG.EDITOR.PARKING_BORDER_WIDTH, CONFIG.EDITOR.PARKING_BORDER_COLOR);
         parkingRect.setDepth(3);
@@ -115,6 +122,18 @@ class LevelEditorScene extends Phaser.Scene {
         this.parkingRect = parkingRect;
         this.roadGraphics = roadGraphics;
         this.roadCenterGraphics = roadCenterGraphics;
+        this.parkingCenterX = centerX;
+        this.parkingCenterY = centerY;
+    }
+    
+    redrawParkingAndRoad() {
+        // Destroy existing graphics
+        if (this.roadGraphics) this.roadGraphics.destroy();
+        if (this.roadCenterGraphics) this.roadCenterGraphics.destroy();
+        if (this.parkingRect) this.parkingRect.destroy();
+        
+        // Redraw with updated dimensions
+        this.createParkingAndRoad();
     }
 
     createControls() {
@@ -195,6 +214,111 @@ class LevelEditorScene extends Phaser.Scene {
             this.scene.stop('LevelEditorScene');
             this.scene.start('GameScene');
         });
+        
+        // Dimension controls (left side below editor area)
+        this.createDimensionControls();
+    }
+    
+    createDimensionControls() {
+        const sceneWidth = this.cameras.main.width;
+        const sceneHeight = this.cameras.main.height;
+        const startY = sceneHeight * 0.5 + 150;
+        const labelX = 60;
+        const inputX = 180;
+        const lineHeight = 45;
+        
+        // Title
+        this.add.text(labelX, startY - 30, 'PARKING & ROAD:', {
+            fontSize: '16px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#000000',
+            fontStyle: 'bold'
+        });
+        
+        // Parking Width control
+        this.add.text(labelX, startY, 'Parking Width:', {
+            fontSize: '14px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#000000'
+        });
+        
+        const parkingWidthInput = this.createInput(inputX, startY, this.parkingWidth, (value) => {
+            this.parkingWidth = Math.max(100, Math.min(700, value));
+            this.redrawParkingAndRoad();
+        });
+        
+        // Parking Height control
+        this.add.text(labelX, startY + lineHeight, 'Parking Height:', {
+            fontSize: '14px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#000000'
+        });
+        
+        const parkingHeightInput = this.createInput(inputX, startY + lineHeight, this.parkingHeight, (value) => {
+            this.parkingHeight = Math.max(100, Math.min(500, value));
+            this.redrawParkingAndRoad();
+        });
+        
+        // Road Half Width control
+        this.add.text(labelX, startY + lineHeight * 2, 'Road Half Width:', {
+            fontSize: '14px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#000000'
+        });
+        
+        const roadHalfWidthInput = this.createInput(inputX, startY + lineHeight * 2, this.roadHalfWidth, (value) => {
+            this.roadHalfWidth = Math.max(5, Math.min(100, value));
+            this.redrawParkingAndRoad();
+        });
+    }
+    
+    createInput(x, y, defaultValue, onChange) {
+        // Create HTML input element
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.value = defaultValue;
+        input.style.position = 'absolute';
+        input.style.left = '0px';
+        input.style.top = '0px';
+        input.style.width = '80px';
+        input.style.height = '30px';
+        input.style.fontSize = '14px';
+        input.style.padding = '5px';
+        input.style.border = '2px solid #333';
+        input.style.borderRadius = '4px';
+        
+        // Add to game container
+        const gameContainer = document.getElementById('game-container');
+        if (gameContainer) {
+            gameContainer.appendChild(input);
+            
+            // Position relative to game
+            const updatePosition = () => {
+                const canvas = this.game.canvas;
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / this.cameras.main.width;
+                const scaleY = canvas.height / this.cameras.main.height;
+                input.style.left = (rect.left + x * rect.width / this.cameras.main.width) + 'px';
+                input.style.top = (rect.top + y * rect.height / this.cameras.main.height) + 'px';
+            };
+            updatePosition();
+            
+            // Update position on resize
+            window.addEventListener('resize', updatePosition);
+            
+            // Handle value changes
+            input.addEventListener('change', () => {
+                const value = parseInt(input.value) || defaultValue;
+                input.value = value;
+                onChange(value);
+            });
+            
+            // Store reference to destroy later
+            if (!this.inputElements) this.inputElements = [];
+            this.inputElements.push(input);
+        }
+        
+        return input;
     }
 
     createRotationPanel() {
@@ -206,72 +330,65 @@ class LevelEditorScene extends Phaser.Scene {
         this.rotationPanel.setVisible(false);
         this.rotationPanel.setDepth(20); // Above cars (depth 10)
         
-        const panelBg = this.add.rectangle(0, 0, 280, 100, 0xFFFFFF);
+        const panelBg = this.add.rectangle(0, 0, 280, 80, 0xFFFFFF);
         panelBg.setStrokeStyle(3, 0x333333);
         this.rotationPanel.add(panelBg);
         
         // Rotation label
-        const rotationLabel = this.add.text(-120, -20, 'Rotation:', {
-            fontSize: '18px',
+        const rotationLabel = this.add.text(-100, 0, 'Rotation (degrees):', {
+            fontSize: '16px',
             fontFamily: CONFIG.FONT_FAMILY,
             color: '#000000'
         }).setOrigin(0, 0.5);
         this.rotationPanel.add(rotationLabel);
         
-        // Rotation value display
-        this.rotationValueText = this.add.text(0, -20, '0°', {
-            fontSize: '20px',
-            fontFamily: CONFIG.FONT_FAMILY,
-            color: '#000000',
-            fontStyle: 'bold'
-        }).setOrigin(0.5);
-        this.rotationPanel.add(this.rotationValueText);
+        // Create HTML input for rotation
+        this.rotationInput = document.createElement('input');
+        this.rotationInput.type = 'number';
+        this.rotationInput.value = '0';
+        this.rotationInput.style.position = 'absolute';
+        this.rotationInput.style.width = '80px';
+        this.rotationInput.style.height = '30px';
+        this.rotationInput.style.fontSize = '16px';
+        this.rotationInput.style.padding = '5px';
+        this.rotationInput.style.border = '2px solid #333';
+        this.rotationInput.style.borderRadius = '4px';
+        this.rotationInput.style.textAlign = 'center';
         
-        // Rotation buttons
-        const rotateLeftBtn = this.add.rectangle(-80, 25, 60, 40, 0x2196F3);
-        rotateLeftBtn.setStrokeStyle(2, 0x1565C0);
-        rotateLeftBtn.setInteractive({ useHandCursor: true });
-        this.rotationPanel.add(rotateLeftBtn);
+        const gameContainer = document.getElementById('game-container');
+        if (gameContainer) {
+            gameContainer.appendChild(this.rotationInput);
+            
+            // Will be positioned when panel is shown
+            this.rotationInput.style.display = 'none';
+            
+            // Handle value changes
+            this.rotationInput.addEventListener('change', () => {
+                const value = parseFloat(this.rotationInput.value) || 0;
+                this.setCarRotation(value);
+            });
+            
+            // Store reference
+            if (!this.inputElements) this.inputElements = [];
+            this.inputElements.push(this.rotationInput);
+        }
+    }
+    
+    updateRotationInputPosition() {
+        if (!this.rotationInput || !this.rotationPanel.visible) return;
         
-        const rotateLeftText = this.add.text(-80, 25, '-15°', {
-            fontSize: '16px',
-            fontFamily: CONFIG.FONT_FAMILY,
-            color: '#FFFFFF',
-            fontStyle: 'bold'
-        }).setOrigin(0.5);
-        this.rotationPanel.add(rotateLeftText);
+        const canvas = this.game.canvas;
+        const rect = canvas.getBoundingClientRect();
+        const sceneWidth = this.cameras.main.width;
+        const sceneHeight = this.cameras.main.height;
         
-        const rotateRightBtn = this.add.rectangle(80, 25, 60, 40, 0x2196F3);
-        rotateRightBtn.setStrokeStyle(2, 0x1565C0);
-        rotateRightBtn.setInteractive({ useHandCursor: true });
-        this.rotationPanel.add(rotateRightBtn);
+        // Position input at panel center
+        const panelX = sceneWidth / 2 + 60;
+        const panelY = sceneHeight * 0.5 + 180;
         
-        const rotateRightText = this.add.text(80, 25, '+15°', {
-            fontSize: '16px',
-            fontFamily: CONFIG.FONT_FAMILY,
-            color: '#FFFFFF',
-            fontStyle: 'bold'
-        }).setOrigin(0.5);
-        this.rotationPanel.add(rotateRightText);
-        
-        // Reset rotation button
-        const resetBtn = this.add.rectangle(0, 25, 60, 40, 0x4CAF50);
-        resetBtn.setStrokeStyle(2, 0x2E7D32);
-        resetBtn.setInteractive({ useHandCursor: true });
-        this.rotationPanel.add(resetBtn);
-        
-        const resetText = this.add.text(0, 25, '0°', {
-            fontSize: '16px',
-            fontFamily: CONFIG.FONT_FAMILY,
-            color: '#FFFFFF',
-            fontStyle: 'bold'
-        }).setOrigin(0.5);
-        this.rotationPanel.add(resetText);
-        
-        // Rotation button handlers
-        rotateLeftBtn.on('pointerdown', () => this.rotateCar(-15));
-        rotateRightBtn.on('pointerdown', () => this.rotateCar(15));
-        resetBtn.on('pointerdown', () => this.setCarRotation(0));
+        this.rotationInput.style.left = (rect.left + panelX * rect.width / sceneWidth) + 'px';
+        this.rotationInput.style.top = (rect.top + panelY * rect.height / sceneHeight - 15) + 'px';
+        this.rotationInput.style.display = 'block';
     }
 
     spawnCar() {
@@ -332,6 +449,7 @@ class LevelEditorScene extends Phaser.Scene {
         // Show rotation panel
         this.rotationPanel.setVisible(true);
         this.updateRotationDisplay();
+        this.updateRotationInputPosition();
         
         console.log('Selected car:', carData);
     }
@@ -341,6 +459,9 @@ class LevelEditorScene extends Phaser.Scene {
             this.selectedCar.sprite.clearTint();
             this.selectedCar = null;
             this.rotationPanel.setVisible(false);
+            if (this.rotationInput) {
+                this.rotationInput.style.display = 'none';
+            }
         }
     }
 
@@ -359,6 +480,9 @@ class LevelEditorScene extends Phaser.Scene {
         // Deselect
         this.selectedCar = null;
         this.rotationPanel.setVisible(false);
+        if (this.rotationInput) {
+            this.rotationInput.style.display = 'none';
+        }
         
         console.log('Deleted car. Remaining cars:', this.cars.length);
     }
@@ -386,7 +510,9 @@ class LevelEditorScene extends Phaser.Scene {
         if (!this.selectedCar) return;
         
         const normalizedRotation = ((this.selectedCar.rotation % 360) + 360) % 360;
-        this.rotationValueText.setText(`${Math.round(normalizedRotation)}°`);
+        if (this.rotationInput) {
+            this.rotationInput.value = Math.round(normalizedRotation);
+        }
     }
 
     onPointerDown(pointer) {
@@ -412,6 +538,21 @@ class LevelEditorScene extends Phaser.Scene {
     copyLevelData() {
         // Generate level data JSON
         const levelData = {
+            parking: {
+                width: this.parkingWidth,
+                height: this.parkingHeight,
+                color: this.parkingColor,
+                alpha: this.parkingAlpha,
+                borderColor: CONFIG.EDITOR.PARKING_BORDER_COLOR,
+                borderWidth: CONFIG.EDITOR.PARKING_BORDER_WIDTH
+            },
+            road: {
+                halfWidth: this.roadHalfWidth,
+                thickness: this.roadThickness,
+                color: this.roadColor,
+                fillColor: this.roadFillColor,
+                fillAlpha: this.roadFillAlpha
+            },
             cars: this.cars.map(carData => ({
                 type: carData.type,
                 x: Math.round(carData.x),
@@ -469,5 +610,17 @@ class LevelEditorScene extends Phaser.Scene {
 
     update() {
         // Update logic if needed
+    }
+    
+    shutdown() {
+        // Clean up HTML input elements
+        if (this.inputElements) {
+            this.inputElements.forEach(input => {
+                if (input && input.parentElement) {
+                    input.parentElement.removeChild(input);
+                }
+            });
+            this.inputElements = [];
+        }
     }
 }
