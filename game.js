@@ -1,15 +1,22 @@
-    // Single Scene combining Vehicle Physics and Battery Merge Game
+    // Single Scene combining Parking Jam (top) and Battery Merge Game (bottom)
     class GameScene extends Phaser.Scene {
         constructor() {
             super('GameScene');
         }
 
         init() {
+            // Parking Jam properties (top half)
+            this.cars = [];                     // Array of car objects {sprite, chargeRequired, currentCharge, canMove}
+            this.chargingInterval = null;       // Interval for charging
+            this.chargingRate = 0;              // Total charging rate (sum of battery values)
+            this.chargingEffects = [];          // Visual charging effects
+            this.levelData = null;              // Current level data
+            
             // Charging system properties (for parking jam)
             this.chargingSlots = [null, null, null]; // 3 slots for batteries
             this.chargingSlotsUI = [];
             
-            // Merge Scene properties
+            // Merge Scene properties (bottom half)
             this.coins = 1000;
             this.grid = Array(3).fill(null).map(() => Array(3).fill(null)); // 3x3 grid
             this.gridCells = [];
@@ -42,6 +49,10 @@
             this.load.image('point', 'graphics/point.png');
             this.load.image('button', 'graphics/Button.png');
             
+            // Load parking jam assets
+            this.load.image('car', 'graphics/vehicles/car.png');
+            this.load.image('bolt', 'graphics/bolt_64.png');
+            
             // Load level data
             this.load.json('levels', 'levels.json');
         }
@@ -51,10 +62,22 @@
             const sceneWidth = this.cameras.main.width;
             const sceneHeight = this.cameras.main.height;
             
-            // Add merge section background (bottom half only - top half is handled by ParkingJamScene)
+            // Top half: Parking Jam area (0 to 50%)
+            const parkingHeight = sceneHeight * 0.5;
+            this.add.rectangle(sceneWidth / 2, parkingHeight / 2, sceneWidth, parkingHeight, 0xE8F4F8);
+            
+            // Title for parking area
+            this.add.text(sceneWidth / 2, 20, 'PARKING JAM', {
+                fontSize: '24px',
+                fontFamily: CONFIG.FONT_FAMILY,
+                color: '#333333',
+                fontStyle: 'bold'
+            }).setOrigin(0.5);
+            
+            // Bottom half: Merge section background (50% to 100%)
             this.add.rectangle(sceneWidth / 2, sceneHeight * 0.75, sceneWidth, sceneHeight * 0.5, 0xEEF5F8);
             
-            // Create 3 charging slots (moved to top of bottom half, just below where parking area will be)
+            // Create 3 charging slots (moved to top of bottom half, just below parking area)
             this.createChargingSlots();
             
             // Setup drag and drop for batteries
@@ -80,14 +103,19 @@
             this.input.on('drag', this.onDrag, this);
             this.input.on('dragend', this.onDragEnd, this);
             
-            // Load and start Parking Jam Scene
+            // Load and start parking jam (in same scene)
             const levelsData = this.cache.json.get('levels');
             if (levelsData && levelsData.levels && levelsData.levels.length > 0) {
-                // Start ParkingJamScene with first level
-                this.scene.launch('ParkingJamScene', { levelData: levelsData.levels[0] });
+                this.levelData = levelsData.levels[0];
+                this.loadLevel(this.levelData);
             } else {
-                // Start ParkingJamScene without level data (will show editor message)
-                this.scene.launch('ParkingJamScene', { levelData: null });
+                // Show message if no level data
+                this.add.text(sceneWidth / 2, parkingHeight / 2, 'No level data loaded\nUse Level Editor to create levels', {
+                    fontSize: '20px',
+                    fontFamily: CONFIG.FONT_FAMILY,
+                    color: '#666666',
+                    align: 'center'
+                }).setOrigin(0.5);
             }
         }
 
@@ -334,12 +362,236 @@
         }
         
         updateChargingSystem() {
-            // Notify ParkingJamScene of battery changes
-            const parkingJamScene = this.scene.get('ParkingJamScene');
-            if (parkingJamScene && parkingJamScene.scene.isActive()) {
-                parkingJamScene.updateChargingSlots(this.chargingSlots);
+            // Calculate total charging rate from batteries in slots
+            this.chargingRate = 0;
+            for (let battery of this.chargingSlots) {
+                if (battery !== null) {
+                    this.chargingRate += battery.level; // Battery level = charge units
+                }
             }
         }
+        
+        // ========== PARKING JAM METHODS ==========
+        
+        loadLevel(levelData) {
+            console.log('Loading level:', levelData);
+            
+            // Spawn cars from level data
+            for (let carData of levelData.cars) {
+                this.spawnCar(carData);
+            }
+            
+            // Determine which cars can move initially
+            this.updateMovableCars();
+            
+            // Start charging system
+            this.startCharging();
+        }
+
+        spawnCar(carData) {
+            const carSprite = this.add.sprite(carData.x, carData.y, carData.type);
+            carSprite.setOrigin(0.5);
+            carSprite.setAngle(carData.rotation);
+            carSprite.setScale(0.3); // Adjust as needed
+            carSprite.setDepth(10);
+            
+            // Car object with charging state
+            const car = {
+                sprite: carSprite,
+                type: carData.type,
+                chargeRequired: carData.chargeRequired || 100,
+                currentCharge: 0,
+                canMove: false,
+                isCharging: false,
+                isMovingOut: false
+            };
+            
+            this.cars.push(car);
+            
+            // Create charge bar above car
+            this.createCarChargeBar(car);
+            
+            return car;
+        }
+
+        createCarChargeBar(car) {
+            const barWidth = 60;
+            const barHeight = 8;
+            const offsetY = -40; // Above the car
+            
+            // Background bar
+            const barBg = this.add.rectangle(
+                car.sprite.x,
+                car.sprite.y + offsetY,
+                barWidth,
+                barHeight,
+                0x888888
+            );
+            barBg.setOrigin(0, 0.5);
+            barBg.setDepth(15);
+            
+            // Charge bar (green)
+            const chargeBar = this.add.rectangle(
+                car.sprite.x,
+                car.sprite.y + offsetY,
+                0,
+                barHeight,
+                0x4CAF50
+            );
+            chargeBar.setOrigin(0, 0.5);
+            chargeBar.setDepth(16);
+            
+            // Store references
+            car.chargeBarBg = barBg;
+            car.chargeBar = chargeBar;
+        }
+
+        updateCarChargeBar(car) {
+            if (!car.chargeBar) return;
+            
+            const barWidth = 60;
+            const progress = Math.min(car.currentCharge / car.chargeRequired, 1);
+            car.chargeBar.width = barWidth * progress;
+        }
+
+        updateMovableCars() {
+            // Simple logic: determine which cars can move based on collision detection
+            // For now, we'll assume the first uncharged car can move
+            
+            // Reset all canMove flags
+            for (let car of this.cars) {
+                car.canMove = false;
+            }
+            
+            // Find first car that isn't moving out and isn't fully charged
+            for (let car of this.cars) {
+                if (!car.isMovingOut) {
+                    car.canMove = true;
+                    break; // Only one car can be charged/moved at a time
+                }
+            }
+        }
+
+        startCharging() {
+            // Start charging cycle
+            this.chargingInterval = this.time.addEvent({
+                delay: 1000, // 1 second interval
+                callback: this.chargeCycle,
+                callbackScope: this,
+                loop: true
+            });
+        }
+
+        chargeCycle() {
+            // Use charging rate from batteries in slots
+            if (this.chargingRate === 0) return; // No batteries in slots
+            
+            // Find the car that can be charged
+            const carToCharge = this.cars.find(car => car.canMove && !car.isMovingOut);
+            
+            if (!carToCharge) return;
+            
+            // Charge the car
+            carToCharge.currentCharge += this.chargingRate;
+            carToCharge.isCharging = true;
+            
+            // Update charge bar
+            this.updateCarChargeBar(carToCharge);
+            
+            // Show charging effect
+            this.showChargingEffect(carToCharge);
+            
+            console.log(`Charging car: ${carToCharge.currentCharge}/${carToCharge.chargeRequired}`);
+            
+            // Check if car is fully charged
+            if (carToCharge.currentCharge >= carToCharge.chargeRequired) {
+                this.moveOutCar(carToCharge);
+            }
+        }
+
+        showChargingEffect(car) {
+            // Create bolt effect near the car
+            const bolt = this.add.sprite(car.sprite.x + 30, car.sprite.y, 'bolt');
+            bolt.setScale(0.5);
+            bolt.setDepth(20);
+            bolt.setAlpha(0.8);
+            
+            // Animate bolt
+            this.tweens.add({
+                targets: bolt,
+                y: car.sprite.y - 20,
+                alpha: 0,
+                duration: 500,
+                ease: 'Power2',
+                onComplete: () => {
+                    bolt.destroy();
+                }
+            });
+        }
+
+        moveOutCar(car) {
+            console.log('Car fully charged! Moving out...');
+            
+            car.isCharging = false;
+            car.isMovingOut = true;
+            
+            // Hide charge bar
+            if (car.chargeBar) car.chargeBar.setVisible(false);
+            if (car.chargeBarBg) car.chargeBarBg.setVisible(false);
+            
+            // Animate car moving out (to the right)
+            const sceneWidth = this.cameras.main.width;
+            
+            this.tweens.add({
+                targets: car.sprite,
+                x: sceneWidth + 100, // Move off screen
+                duration: 2000,
+                ease: 'Power1',
+                onComplete: () => {
+                    // Remove car
+                    car.sprite.destroy();
+                    if (car.chargeBar) car.chargeBar.destroy();
+                    if (car.chargeBarBg) car.chargeBarBg.destroy();
+                    
+                    // Remove from array
+                    const index = this.cars.indexOf(car);
+                    if (index > -1) {
+                        this.cars.splice(index, 1);
+                    }
+                    
+                    // Update which cars can move next
+                    this.updateMovableCars();
+                    
+                    // Check win condition
+                    if (this.cars.length === 0) {
+                        this.winLevel();
+                    }
+                }
+            });
+        }
+
+        winLevel() {
+            console.log('Level complete!');
+            
+            // Show win message
+            const sceneWidth = this.cameras.main.width;
+            const sceneHeight = this.cameras.main.height;
+            
+            const winText = this.add.text(sceneWidth / 2, sceneHeight * 0.25, 'LEVEL COMPLETE!', {
+                fontSize: '48px',
+                fontFamily: CONFIG.FONT_FAMILY,
+                color: '#4CAF50',
+                fontStyle: 'bold'
+            }).setOrigin(0.5);
+            winText.setDepth(100);
+            
+            // Stop charging
+            if (this.chargingInterval) {
+                this.chargingInterval.remove();
+            }
+        }
+        
+        // ========== END PARKING JAM METHODS ==========
         
         handleBatteryDrop(gameObject, slotIndex) {
             // Handle battery drop from MergeScene (to be implemented)
@@ -1802,7 +2054,7 @@
         type: Phaser.AUTO,
         parent: 'game-container',
         backgroundColor: '#EEF5F8',
-        scene: [GameScene, ParkingJamScene, LevelEditorScene],
+        scene: [GameScene],
         
         physics: {
             default: 'matter',
