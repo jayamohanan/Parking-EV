@@ -239,6 +239,23 @@ var CONFIG = {
         ALPHA_START: 1,                // Starting transparency (0-1, 1 = opaque)
         ALPHA_END: 0,                  // Ending transparency (0-1, 0 = invisible)
         DURATION: 600                  // Animation duration in milliseconds
+    },
+    
+    // Level Editor settings
+    EDITOR: {
+        // Parking area rectangle (inner rectangle)
+        PARKING_WIDTH: 600,            // Default width of parking area
+        PARKING_HEIGHT: 400,           // Default height of parking area
+        PARKING_COLOR: 0xEEEEEE,       // Light grey color for parking area
+        PARKING_BORDER_COLOR: 0x666666, // Dark grey border
+        PARKING_BORDER_WIDTH: 3,       // Border thickness
+        
+        // Road rectangle (outer rectangle)
+        ROAD_OFFSET: 10,               // Default offset from parking area (+10 from parking dimensions)
+        ROAD_COLOR: 0x555555,          // Dark grey color for road center line
+        ROAD_THICKNESS: 40,            // Total thickness of road (extends on both sides of center line)
+        ROAD_FILL_COLOR: 0x777777,     // Road surface color
+        ROAD_FILL_ALPHA: 0.7,          // Road transparency
     }
 };
 

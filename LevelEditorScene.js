@@ -10,6 +10,12 @@ class LevelEditorScene extends Phaser.Scene {
         this.selectedCarType = 'car'; // Current car type from dropdown
         this.isDragging = false;
         this.editorBounds = null;     // Top half area bounds
+        
+        // Parking and road dimensions (from config, can be adjusted)
+        this.parkingWidth = CONFIG.EDITOR.PARKING_WIDTH;
+        this.parkingHeight = CONFIG.EDITOR.PARKING_HEIGHT;
+        this.roadOffset = CONFIG.EDITOR.ROAD_OFFSET;
+        this.roadThickness = CONFIG.EDITOR.ROAD_THICKNESS;
     }
 
     preload() {
@@ -44,6 +50,9 @@ class LevelEditorScene extends Phaser.Scene {
             fontStyle: 'bold'
         }).setOrigin(0.5);
         
+        // Draw parking area and road rectangles
+        this.createParkingAndRoad();
+        
         // Create UI controls at bottom
         this.createControls();
         
@@ -52,6 +61,60 @@ class LevelEditorScene extends Phaser.Scene {
         
         // Setup click handler for deselection
         this.input.on('pointerdown', this.onPointerDown, this);
+    }
+
+    createParkingAndRoad() {
+        const sceneWidth = this.cameras.main.width;
+        const sceneHeight = this.cameras.main.height;
+        const editorHeight = sceneHeight * 0.5;
+        
+        // Center position for parking area (in editor area)
+        const centerX = sceneWidth / 2;
+        const centerY = editorHeight / 2 + 30; // Slightly below center to account for title
+        
+        // Calculate road dimensions (road rectangle is offset from parking by roadOffset)
+        const roadWidth = this.parkingWidth + (this.roadOffset * 2);
+        const roadHeight = this.parkingHeight + (this.roadOffset * 2);
+        
+        // Draw road first (as thick rectangle)
+        // The road extends roadThickness/2 on both sides of the road rectangle
+        // So inner edge touches parking, outer edge extends outward
+        const roadGraphics = this.add.graphics();
+        roadGraphics.lineStyle(this.roadThickness, CONFIG.EDITOR.ROAD_FILL_COLOR, CONFIG.EDITOR.ROAD_FILL_ALPHA);
+        roadGraphics.strokeRect(
+            centerX - roadWidth / 2,
+            centerY - roadHeight / 2,
+            roadWidth,
+            roadHeight
+        );
+        roadGraphics.setDepth(1);
+        
+        // Draw road center line (for reference)
+        const roadCenterGraphics = this.add.graphics();
+        roadCenterGraphics.lineStyle(2, CONFIG.EDITOR.ROAD_COLOR, 1);
+        roadCenterGraphics.strokeRect(
+            centerX - roadWidth / 2,
+            centerY - roadHeight / 2,
+            roadWidth,
+            roadHeight
+        );
+        roadCenterGraphics.setDepth(2);
+        
+        // Draw parking area rectangle
+        const parkingRect = this.add.rectangle(
+            centerX,
+            centerY,
+            this.parkingWidth,
+            this.parkingHeight,
+            CONFIG.EDITOR.PARKING_COLOR
+        );
+        parkingRect.setStrokeStyle(CONFIG.EDITOR.PARKING_BORDER_WIDTH, CONFIG.EDITOR.PARKING_BORDER_COLOR);
+        parkingRect.setDepth(3);
+        
+        // Store references
+        this.parkingRect = parkingRect;
+        this.roadGraphics = roadGraphics;
+        this.roadCenterGraphics = roadCenterGraphics;
     }
 
     createControls() {
@@ -141,6 +204,7 @@ class LevelEditorScene extends Phaser.Scene {
         // Panel background
         this.rotationPanel = this.add.container(sceneWidth / 2, sceneHeight * 0.5 + 180);
         this.rotationPanel.setVisible(false);
+        this.rotationPanel.setDepth(20); // Above cars (depth 10)
         
         const panelBg = this.add.rectangle(0, 0, 280, 100, 0xFFFFFF);
         panelBg.setStrokeStyle(3, 0x333333);
@@ -219,6 +283,7 @@ class LevelEditorScene extends Phaser.Scene {
         carSprite.setOrigin(0.5);
         carSprite.setInteractive({ useHandCursor: true, draggable: true });
         carSprite.setScale(0.3); // Adjust scale as needed
+        carSprite.setDepth(10); // Above parking (depth 3) and road (depth 1-2)
         
         // Store car data
         const carData = {
