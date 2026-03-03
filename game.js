@@ -5,29 +5,9 @@
         }
 
         init() {
-            // Vehicle properties
-            this.vehicle = null;
-            this.boxes = []; // Array to hold multiple boxes
-            this.isForward = false;
-            this.isReverse = false;
-            
-            // Engine sound properties
-            this.engineSound = null;
-            this.isEngineRunning = false;
-            this.currentPlaybackRate = CONFIG.AUDIO.ENGINE_IDLE_RATE;
-            this.targetPlaybackRate = CONFIG.AUDIO.ENGINE_IDLE_RATE;
-            this.currentVolume = CONFIG.AUDIO.ENGINE_IDLE_VOLUME;
-            this.targetVolume = CONFIG.AUDIO.ENGINE_IDLE_VOLUME;
-            
-            // Charging system properties
+            // Charging system properties (for parking jam)
             this.chargingSlots = [null, null, null]; // 3 slots for batteries
             this.chargingSlotsUI = [];
-            this.carCharge = 0;
-            this.maxCharge = 100;
-            this.chargingInterval = null;
-            this.firstBatteryTime = null;
-            this.chargeCycleActive = false;
-            this.lastChargeCycle = 0;
             
             // Merge Scene properties
             this.coins = 1000;
@@ -55,11 +35,6 @@
         }
 
         preload() {
-            // Load vehicle assets
-            this.load.image('chassis', 'graphics/chassis.png');
-            this.load.image('tire', 'graphics/tire.png');
-            this.load.image('ground', 'graphics/ground.png');
-            
             // Load battery images with extension fallback (from pre-initialized cache)
             loadBatteryImagesFromCache(this, 20);
             
@@ -67,11 +42,8 @@
             this.load.image('point', 'graphics/point.png');
             this.load.image('button', 'graphics/Button.png');
             
-            // Load charging effect
-            this.load.image('bolt', 'graphics/bolt_64.png');
-            
-            // Load engine sound
-            this.load.audio('car_idle', 'sounds/car_idle.wav');
+            // Load level data
+            this.load.json('levels', 'levels.json');
         }
 
         create() {
@@ -79,47 +51,14 @@
             const sceneWidth = this.cameras.main.width;
             const sceneHeight = this.cameras.main.height;
             
-            // Add vehicle section background (top half) - same color as merge section
-            this.add.rectangle(sceneWidth / 2, sceneHeight * 0.25, sceneWidth, sceneHeight * 0.5, 0xEEF5F8);
-            
-            // Add merge section background (bottom half)
+            // Add merge section background (bottom half only - top half is handled by ParkingJamScene)
             this.add.rectangle(sceneWidth / 2, sceneHeight * 0.75, sceneWidth, sceneHeight * 0.5, 0xEEF5F8);
             
-            // Create world bounds
-            this.matter.world.setBounds(0, 0, sceneWidth, sceneHeight);
-            this.matter.world.setGravity(0, CONFIG.PHYSICS.GRAVITY_Y);
-            
-            // Create thin ground using ground tiles
-            this.createThinGround();
-            
-            // Create 3 charging slots below ground
+            // Create 3 charging slots (moved to top of bottom half, just below where parking area will be)
             this.createChargingSlots();
-            
-            // Create vehicle with spring suspension
-            this.createVehicle();
-            
-            // Create pushable box
-            this.createBox();
-            
-            // Create charge bar UI
-            this.createChargeBar();
-            
-            // Setup keyboard controls
-            this.cursors = this.input.keyboard.createCursorKeys();
-            
-            // Setup camera
-            this.cameras.main.setBounds(0, 0, sceneWidth, sceneHeight);
-            this.cameras.main.scrollX = 0;
-            this.cameras.main.scrollY = 0;
-            
-            // Setup engine sound
-            this.setupEngineSound();
             
             // Setup drag and drop for batteries
             this.setupBatteryDropZones();
-            
-            // Start engine automatically
-            this.startEngine();
             
             // Create 3x3 grid (must be before coin display to calculate grid position)
             this.createGrid();
@@ -140,6 +79,16 @@
             this.input.on('dragstart', this.onDragStart, this);
             this.input.on('drag', this.onDrag, this);
             this.input.on('dragend', this.onDragEnd, this);
+            
+            // Load and start Parking Jam Scene
+            const levelsData = this.cache.json.get('levels');
+            if (levelsData && levelsData.levels && levelsData.levels.length > 0) {
+                // Start ParkingJamScene with first level
+                this.scene.launch('ParkingJamScene', { levelData: levelsData.levels[0] });
+            } else {
+                // Start ParkingJamScene without level data (will show editor message)
+                this.scene.launch('ParkingJamScene', { levelData: null });
+            }
         }
 
         createThinGround() {
@@ -185,8 +134,8 @@
             const sceneWidth = this.cameras.main.width;
             const sceneHeight = this.cameras.main.height;
             
-            // Position slots below where ground will be
-            const slotY = sceneHeight * 0.35 + 120; // Below ground
+            // Position slots at top of bottom half (just below the parking area)
+            const slotY = sceneHeight * 0.5 + 80; // Top of bottom half + some padding
             const slotSize = 100; // Same as grid cells
             const slotGap = 15; // Same as grid cell gap
             const totalWidth = 3 * slotSize + 2 * slotGap;
@@ -385,104 +334,11 @@
         }
         
         updateChargingSystem() {
-            // Check if all slots are empty
-            const allEmpty = this.chargingSlots.every(slot => slot === null);
-            
-            if (allEmpty) {
-                // Stop charging
-                if (this.chargingInterval) {
-                    this.chargingInterval.remove();
-                    this.chargingInterval = null;
-                }
-                this.firstBatteryTime = null;
-                this.chargeCycleActive = false;
-                return;
+            // Notify ParkingJamScene of battery changes
+            const parkingJamScene = this.scene.get('ParkingJamScene');
+            if (parkingJamScene && parkingJamScene.scene.isActive()) {
+                parkingJamScene.updateChargingSlots(this.chargingSlots);
             }
-            
-            // Start charging if not already started
-            if (!this.chargingInterval) {
-                // Set first battery time
-                this.firstBatteryTime = this.time.now;
-                this.chargeCycleActive = false;
-                
-                // Start charging loop (check every 100ms)
-                this.chargingInterval = this.time.addEvent({
-                    delay: 100,
-                    callback: this.performCharging,
-                    callbackScope: this,
-                    loop: true
-                });
-            }
-        }
-        
-        performCharging() {
-            if (!this.firstBatteryTime) return;
-            
-            // Calculate elapsed seconds since first battery
-            const elapsed = (this.time.now - this.firstBatteryTime) / 1000;
-            
-            // Charge cycle is 1 second
-            const currentCycle = Math.floor(elapsed);
-            
-            if (!this.chargeCycleActive) {
-                // Wait for next full second
-                if (elapsed >= 1) {
-                    this.chargeCycleActive = true;
-                    this.lastChargeCycle = currentCycle;
-                    this.executeChargeEffect();
-                }
-            } else {
-                // Check if next cycle started
-                if (currentCycle > this.lastChargeCycle) {
-                    this.lastChargeCycle = currentCycle;
-                    this.executeChargeEffect();
-                }
-            }
-        }
-        
-        executeChargeEffect() {
-            // Calculate total charge per minute from all batteries
-            let totalChargePerMin = 0;
-            this.chargingSlots.forEach(slot => {
-                if (slot !== null) {
-                    totalChargePerMin += slot.chargePerMinute;
-                }
-            });
-            
-            // Convert to charge per second
-            const chargePerSecond = totalChargePerMin / 60;
-            
-            // Add charge
-            this.carCharge = Math.min(this.carCharge + chargePerSecond, this.maxCharge);
-            
-            // Update UI
-            this.updateChargeBar();
-            
-            // Lightning bolt animation at car center
-            if (this.vehicle && this.chassisSprite) {
-                const bolt = this.add.image(this.chassisSprite.x, this.chassisSprite.y, 'bolt');
-                bolt.setScale(CONFIG.LIGHTNING_BOLT.SCALE_START);
-                bolt.setAlpha(CONFIG.LIGHTNING_BOLT.ALPHA_START);
-                bolt.setDepth(50); // Above car
-                
-                this.tweens.add({
-                    targets: bolt,
-                    scaleX: CONFIG.LIGHTNING_BOLT.SCALE_END,
-                    scaleY: CONFIG.LIGHTNING_BOLT.SCALE_END,
-                    alpha: CONFIG.LIGHTNING_BOLT.ALPHA_END,
-                    duration: CONFIG.LIGHTNING_BOLT.DURATION,
-                    ease: 'Sine.easeOut',
-                    onComplete: () => bolt.destroy()
-                });
-            }
-        }
-        
-        updateChargeBar() {
-            const barWidth = 250;
-            const fillWidth = (this.carCharge / this.maxCharge) * (barWidth - 6);
-            
-            this.chargeBarFill.width = fillWidth;
-            this.chargeText.setText(`⚡ ${Math.floor(this.carCharge)}/${this.maxCharge}`);
         }
         
         handleBatteryDrop(gameObject, slotIndex) {
@@ -715,16 +571,11 @@
         }
 
         update() {
-            if (!this.vehicle) return;
+            // Update logic for merge scene only
+            // Vehicle physics removed - now handled by ParkingJamScene
             
-            // Apply motor power (always accelerating)
-            this.applyMotorPower();
-            
-            // Update engine sound
-            this.updateEngineSound();
-            
-            // Update sprite positions
-            this.updateVehicleGraphics();
+            // Check level-up timer
+            this.checkLevelUpTimer();
         }
 
         applyMotorPower() {
@@ -1951,7 +1802,7 @@
         type: Phaser.AUTO,
         parent: 'game-container',
         backgroundColor: '#EEF5F8',
-        scene: [GameScene],
+        scene: [GameScene, ParkingJamScene, LevelEditorScene],
         
         physics: {
             default: 'matter',

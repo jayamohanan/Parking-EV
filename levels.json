@@ -1,3 +1,31 @@
 {
- 
+  "levels": [
+    {
+      "id": 1,
+      "name": "Level 1",
+      "cars": [
+        {
+          "type": "car",
+          "x": 200,
+          "y": 150,
+          "rotation": 0,
+          "chargeRequired": 50
+        },
+        {
+          "type": "car",
+          "x": 350,
+          "y": 150,
+          "rotation": 90,
+          "chargeRequired": 70
+        },
+        {
+          "type": "car",
+          "x": 275,
+          "y": 220,
+          "rotation": 180,
+          "chargeRequired": 60
+        }
+      ]
+    }
+  ]
 }
