@@ -252,9 +252,8 @@ var CONFIG = {
         PARKING_BORDER_WIDTH: 3,       // Border thickness
         
         // Road rectangle (outer rectangle)
-        ROAD_HALF_WIDTH: 20,           // Half width of road (distance from parking edge to road center)
+        ROAD_WIDTH: 40,                // Width/thickness of road (extends outward from parking edge)
         ROAD_COLOR: 0x555555,          // Dark grey color for road center line
-        ROAD_THICKNESS: 40,            // Total thickness of road (extends road_half_width on both sides from center)
         ROAD_FILL_COLOR: 0x777777,     // Road surface color
         ROAD_FILL_ALPHA: 0.7,          // Road transparency
     }

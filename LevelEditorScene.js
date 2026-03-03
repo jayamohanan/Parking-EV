@@ -14,8 +14,7 @@ class LevelEditorScene extends Phaser.Scene {
         // Parking and road dimensions (from config, can be adjusted)
         this.parkingWidth = CONFIG.EDITOR.PARKING_WIDTH;
         this.parkingHeight = CONFIG.EDITOR.PARKING_HEIGHT;
-        this.roadHalfWidth = CONFIG.EDITOR.ROAD_HALF_WIDTH;
-        this.roadThickness = CONFIG.EDITOR.ROAD_THICKNESS;
+        this.roadWidth = CONFIG.EDITOR.ROAD_WIDTH;
         
         // Colors and transparency
         this.parkingColor = CONFIG.EDITOR.PARKING_COLOR;
@@ -79,19 +78,21 @@ class LevelEditorScene extends Phaser.Scene {
         const centerX = sceneWidth / 2;
         const centerY = editorHeight / 2 + 30; // Slightly below center to account for title
         
-        // Calculate road dimensions (road rectangle center is roadHalfWidth from parking edge)
-        const roadWidth = this.parkingWidth + (this.roadHalfWidth * 2);
-        const roadHeight = this.parkingHeight + (this.roadHalfWidth * 2);
+        // Road dimensions: inner edge touches parking, extends outward by roadWidth
+        // Road center line is at parking edge + roadWidth/2
+        const roadCenterWidth = this.parkingWidth + this.roadWidth;
+        const roadCenterHeight = this.parkingHeight + this.roadWidth;
         
-        // Draw road first (as thick rectangle)
-        // The road extends roadThickness/2 on both sides of the road rectangle center line
+        // Draw road as thick stroke
+        // The road width extends roadWidth/2 on both sides of center line
+        // So inner edge is at parking edge, outer edge extends outward
         const roadGraphics = this.add.graphics();
-        roadGraphics.lineStyle(this.roadThickness, this.roadFillColor, this.roadFillAlpha);
+        roadGraphics.lineStyle(this.roadWidth, this.roadFillColor, this.roadFillAlpha);
         roadGraphics.strokeRect(
-            centerX - roadWidth / 2,
-            centerY - roadHeight / 2,
-            roadWidth,
-            roadHeight
+            centerX - roadCenterWidth / 2,
+            centerY - roadCenterHeight / 2,
+            roadCenterWidth,
+            roadCenterHeight
         );
         roadGraphics.setDepth(1);
         
@@ -99,10 +100,10 @@ class LevelEditorScene extends Phaser.Scene {
         const roadCenterGraphics = this.add.graphics();
         roadCenterGraphics.lineStyle(2, this.roadColor, 1);
         roadCenterGraphics.strokeRect(
-            centerX - roadWidth / 2,
-            centerY - roadHeight / 2,
-            roadWidth,
-            roadHeight
+            centerX - roadCenterWidth / 2,
+            centerY - roadCenterHeight / 2,
+            roadCenterWidth,
+            roadCenterHeight
         );
         roadCenterGraphics.setDepth(2);
         
@@ -222,9 +223,9 @@ class LevelEditorScene extends Phaser.Scene {
     createDimensionControls() {
         const sceneWidth = this.cameras.main.width;
         const sceneHeight = this.cameras.main.height;
-        const startY = sceneHeight * 0.5 + 150;
+        const startY = sceneHeight * 0.5 + 280; // Moved down to avoid overlap with rotation panel (at +180)
         const labelX = 60;
-        const inputX = 180;
+        const inputX = 170;
         const lineHeight = 45;
         
         // Title
@@ -259,15 +260,15 @@ class LevelEditorScene extends Phaser.Scene {
             this.redrawParkingAndRoad();
         });
         
-        // Road Half Width control
-        this.add.text(labelX, startY + lineHeight * 2, 'Road Half Width:', {
+        // Road Width control
+        this.add.text(labelX, startY + lineHeight * 2, 'Road Width:', {
             fontSize: '14px',
             fontFamily: CONFIG.FONT_FAMILY,
             color: '#000000'
         });
         
-        const roadHalfWidthInput = this.createInput(inputX, startY + lineHeight * 2, this.roadHalfWidth, (value) => {
-            this.roadHalfWidth = Math.max(5, Math.min(100, value));
+        const roadWidthInput = this.createInput(inputX, startY + lineHeight * 2, this.roadWidth, (value) => {
+            this.roadWidth = Math.max(5, Math.min(100, value));
             this.redrawParkingAndRoad();
         });
     }
@@ -547,8 +548,7 @@ class LevelEditorScene extends Phaser.Scene {
                 borderWidth: CONFIG.EDITOR.PARKING_BORDER_WIDTH
             },
             road: {
-                halfWidth: this.roadHalfWidth,
-                thickness: this.roadThickness,
+                width: this.roadWidth,
                 color: this.roadColor,
                 fillColor: this.roadFillColor,
                 fillAlpha: this.roadFillAlpha

@@ -402,18 +402,21 @@
             const centerX = sceneWidth / 2;
             const centerY = parkingAreaHeight / 2 + 30; // Slightly below center to account for title
             
-            // Calculate road dimensions
-            const roadWidth = parkingData.width + (roadData.halfWidth * 2);
-            const roadHeight = parkingData.height + (roadData.halfWidth * 2);
+            // Road dimensions: inner edge touches parking, extends outward by roadWidth
+            // Road center line is at parking edge + roadWidth/2
+            const roadCenterWidth = parkingData.width + roadData.width;
+            const roadCenterHeight = parkingData.height + roadData.width;
             
             // Draw road surface (thick stroke)
+            // The road width extends roadWidth/2 on both sides of center line
+            // So inner edge is at parking edge, outer edge extends outward
             const roadGraphics = this.add.graphics();
-            roadGraphics.lineStyle(roadData.thickness, roadData.fillColor, roadData.fillAlpha);
+            roadGraphics.lineStyle(roadData.width, roadData.fillColor, roadData.fillAlpha);
             roadGraphics.strokeRect(
-                centerX - roadWidth / 2,
-                centerY - roadHeight / 2,
-                roadWidth,
-                roadHeight
+                centerX - roadCenterWidth / 2,
+                centerY - roadCenterHeight / 2,
+                roadCenterWidth,
+                roadCenterHeight
             );
             roadGraphics.setDepth(1);
             
@@ -421,10 +424,10 @@
             const roadCenterGraphics = this.add.graphics();
             roadCenterGraphics.lineStyle(2, roadData.color, 1);
             roadCenterGraphics.strokeRect(
-                centerX - roadWidth / 2,
-                centerY - roadHeight / 2,
-                roadWidth,
-                roadHeight
+                centerX - roadCenterWidth / 2,
+                centerY - roadCenterHeight / 2,
+                roadCenterWidth,
+                roadCenterHeight
             );
             roadCenterGraphics.setDepth(2);
             
