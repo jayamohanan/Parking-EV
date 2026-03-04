@@ -52,6 +52,7 @@
             // Load parking jam assets
             this.load.image('car', 'graphics/vehicles/car_1x2.png');
             this.load.image('bolt', 'graphics/bolt_64.png');
+            this.load.image('road', 'graphics/road.png');
             
             // Load level data
             this.load.json('levels', 'levels.json');
@@ -413,31 +414,27 @@
             this.parkingLeft = centerX - parkingWidth / 2;
             this.parkingTop = centerY - parkingHeight / 2;
             
-            // Road dimensions: inner edge touches parking, extends outward by roadWidth
-            // Road center line is at parking edge + roadWidth/2
-            const roadCenterWidth = parkingWidth + roadData.width;
-            const roadCenterHeight = parkingHeight + roadData.width;
+            // Create curved road path
+            const halfW = parkingWidth / 2;
+            const halfH = parkingHeight / 2;
+            const offset = roadData.width / 2;
             
-            // Draw road surface (thick stroke)
+            this.roadPath = this.createRoadPath(
+                centerX, centerY, halfW, halfH, offset,
+                roadData.outerRadius || 80,
+                roadData.innerRadius || 20
+            );
+            
+            // Draw road using path
             const roadGraphics = this.add.graphics();
             roadGraphics.lineStyle(roadData.width, roadData.fillColor, roadData.fillAlpha);
-            roadGraphics.strokeRect(
-                centerX - roadCenterWidth / 2,
-                centerY - roadCenterHeight / 2,
-                roadCenterWidth,
-                roadCenterHeight
-            );
+            this.roadPath.draw(roadGraphics);
             roadGraphics.setDepth(1);
             
             // Draw road center line
             const roadCenterGraphics = this.add.graphics();
             roadCenterGraphics.lineStyle(2, roadData.color, 1);
-            roadCenterGraphics.strokeRect(
-                centerX - roadCenterWidth / 2,
-                centerY - roadCenterHeight / 2,
-                roadCenterWidth,
-                roadCenterHeight
-            );
+            this.roadPath.draw(roadCenterGraphics);
             roadCenterGraphics.setDepth(2);
             
             // Draw parking area rectangle
@@ -451,6 +448,74 @@
             );
             parkingRect.setStrokeStyle(parkingData.borderWidth, parkingData.borderColor);
             parkingRect.setDepth(3);
+        }
+        
+        // Create curved road path (same as in editor)
+        createRoadPath(centerX, centerY, halfW, halfH, offset, outerR, innerR) {
+            const path = new Phaser.Curves.Path();
+            
+            // Road center line position
+            const left = centerX - halfW - offset;
+            const right = centerX + halfW + offset;
+            const top = centerY - halfH - offset;
+            const bottom = centerY + halfH + offset;
+            
+            // Corner radius
+            const radius = outerR;
+            
+            // Create rounded rectangle path - moving clockwise from top-left
+            // Start at top-left corner (after the curve)
+            path.moveTo(left + radius, top);
+            
+            // TOP EDGE - straight line to top-right corner
+            path.lineTo(right - radius, top);
+            
+            // TOP-RIGHT CORNER - arc curve (90 degrees clockwise)
+            const topRightCurve = new Phaser.Curves.Ellipse(
+                right - radius, top + radius, // center
+                radius, radius, // x radius, y radius
+                270, 360, // start angle, end angle (in degrees)
+                false, 0 // clockwise, rotation
+            );
+            path.add(topRightCurve);
+            
+            // RIGHT EDGE - straight line to bottom-right corner
+            path.lineTo(right, bottom - radius);
+            
+            // BOTTOM-RIGHT CORNER - arc curve (90 degrees clockwise)
+            const bottomRightCurve = new Phaser.Curves.Ellipse(
+                right - radius, bottom - radius, // center
+                radius, radius,
+                0, 90,
+                false, 0
+            );
+            path.add(bottomRightCurve);
+            
+            // BOTTOM EDGE - straight line to bottom-left corner
+            path.lineTo(left + radius, bottom);
+            
+            // BOTTOM-LEFT CORNER - arc curve (90 degrees clockwise)
+            const bottomLeftCurve = new Phaser.Curves.Ellipse(
+                left + radius, bottom - radius, // center
+                radius, radius,
+                90, 180,
+                false, 0
+            );
+            path.add(bottomLeftCurve);
+            
+            // LEFT EDGE - straight line back to top-left corner
+            path.lineTo(left, top + radius);
+            
+            // TOP-LEFT CORNER - arc curve back to start (90 degrees clockwise)
+            const topLeftCurve = new Phaser.Curves.Ellipse(
+                left + radius, top + radius, // center
+                radius, radius,
+                180, 270,
+                false, 0
+            );
+            path.add(topLeftCurve);
+            
+            return path;
         }
 
         getOccupiedCellsForGame(anchorRow, anchorCol, orientation, width, length) {
@@ -701,35 +766,98 @@
             if (car.chargeBar) car.chargeBar.setVisible(false);
             if (car.chargeBarBg) car.chargeBarBg.setVisible(false);
             
-            // Animate car moving out (to the right)
-            const sceneWidth = this.cameras.main.width;
+            // If we have a road path, follow it. Otherwise, move straight out
+            if (this.roadPath) {
+                // Find the closest point on the path to start from
+                const startT = this.findClosestPointOnPath(car.sprite.x, car.sprite.y);
+                
+                // Create a follower that moves along the path
+                const follower = { t: startT };
+                
+                this.tweens.add({
+                    targets: follower,
+                    t: 1, // Move along the path from current position to end
+                    duration: 3000,
+                    ease: 'Power1',
+                    onUpdate: () => {
+                        const point = this.roadPath.getPoint(follower.t);
+                        const tangent = this.roadPath.getTangent(follower.t);
+                        
+                        car.sprite.x = point.x;
+                        car.sprite.y = point.y;
+                        
+                        // Rotate car to face direction of movement
+                        car.sprite.rotation = Math.atan2(tangent.y, tangent.x) + Math.PI / 2;
+                    },
+                    onComplete: () => {
+                        // After following path, continue off screen
+                        const sceneWidth = this.cameras.main.width;
+                        this.tweens.add({
+                            targets: car.sprite,
+                            x: sceneWidth + 100,
+                            duration: 1000,
+                            ease: 'Power1',
+                            onComplete: () => {
+                                this.removeCar(car);
+                            }
+                        });
+                    }
+                });
+            } else {
+                // Fallback: simple straight movement
+                const sceneWidth = this.cameras.main.width;
+                
+                this.tweens.add({
+                    targets: car.sprite,
+                    x: sceneWidth + 100,
+                    duration: 2000,
+                    ease: 'Power1',
+                    onComplete: () => {
+                        this.removeCar(car);
+                    }
+                });
+            }
+        }
+        
+        // Find the closest point on the road path to given coordinates
+        findClosestPointOnPath(x, y) {
+            if (!this.roadPath) return 0;
             
-            this.tweens.add({
-                targets: car.sprite,
-                x: sceneWidth + 100, // Move off screen
-                duration: 2000,
-                ease: 'Power1',
-                onComplete: () => {
-                    // Remove car
-                    car.sprite.destroy();
-                    if (car.chargeBar) car.chargeBar.destroy();
-                    if (car.chargeBarBg) car.chargeBarBg.destroy();
-                    
-                    // Remove from array
-                    const index = this.cars.indexOf(car);
-                    if (index > -1) {
-                        this.cars.splice(index, 1);
-                    }
-                    
-                    // Update which cars can move next
-                    this.updateMovableCars();
-                    
-                    // Check win condition
-                    if (this.cars.length === 0) {
-                        this.winLevel();
-                    }
+            let closestT = 0;
+            let closestDist = Infinity;
+            
+            // Sample the path at regular intervals to find closest point
+            for (let t = 0; t <= 1; t += 0.01) {
+                const point = this.roadPath.getPoint(t);
+                const dist = Phaser.Math.Distance.Between(x, y, point.x, point.y);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestT = t;
                 }
-            });
+            }
+            
+            return closestT;
+        }
+        
+        // Remove car and cleanup
+        removeCar(car) {
+            car.sprite.destroy();
+            if (car.chargeBar) car.chargeBar.destroy();
+            if (car.chargeBarBg) car.chargeBarBg.destroy();
+            
+            // Remove from array
+            const index = this.cars.indexOf(car);
+            if (index > -1) {
+                this.cars.splice(index, 1);
+            }
+            
+            // Update which cars can move next
+            this.updateMovableCars();
+            
+            // Check win condition
+            if (this.cars.length === 0) {
+                this.winLevel();
+            }
         }
 
         winLevel() {

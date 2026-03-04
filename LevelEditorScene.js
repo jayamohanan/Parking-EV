@@ -21,6 +21,9 @@ class LevelEditorScene extends Phaser.Scene {
         this.parkingWidth = this.gridCols * this.cellSize;
         this.parkingHeight = this.gridRows * this.cellSize;
         this.roadWidth = CONFIG.EDITOR.ROAD_WIDTH;
+        this.roadOuterRadius = CONFIG.EDITOR.ROAD_OUTER_RADIUS;
+        this.roadInnerRadius = CONFIG.EDITOR.ROAD_INNER_RADIUS;
+        this.roadSegmentsPerCorner = CONFIG.EDITOR.ROAD_SEGMENTS_PER_CORNER;
         
         // Grid to track occupied cells (true = occupied, false = empty)
         this.gridOccupied = Array(this.gridRows).fill(null).map(() => Array(this.gridCols).fill(false));
@@ -36,6 +39,10 @@ class LevelEditorScene extends Phaser.Scene {
     preload() {
         // Load all vehicle sprites from graphics/vehicles folder
         this.load.image('car', 'graphics/vehicles/car_1x2.png');
+        
+        // Load road sprite
+        this.load.image('road', 'graphics/road.png');
+        
         // Add more vehicle types as they become available
     }
 
@@ -87,34 +94,16 @@ class LevelEditorScene extends Phaser.Scene {
         const centerX = sceneWidth / 2;
         const centerY = editorHeight / 2 + 30; // Slightly below center to account for title
         
-        // Road dimensions: inner edge touches parking, extends outward by roadWidth
-        // Road center line is at parking edge + roadWidth/2
-        const roadCenterWidth = this.parkingWidth + this.roadWidth;
-        const roadCenterHeight = this.parkingHeight + this.roadWidth;
+        // Calculate road path center line (middle of road)
+        const halfParkingW = this.parkingWidth / 2;
+        const halfParkingH = this.parkingHeight / 2;
+        const roadOffset = this.roadWidth / 2; // Distance from parking edge to road center
         
-        // Draw road as thick stroke
-        // The road width extends roadWidth/2 on both sides of center line
-        // So inner edge is at parking edge, outer edge extends outward
-        const roadGraphics = this.add.graphics();
-        roadGraphics.lineStyle(this.roadWidth, this.roadFillColor, this.roadFillAlpha);
-        roadGraphics.strokeRect(
-            centerX - roadCenterWidth / 2,
-            centerY - roadCenterHeight / 2,
-            roadCenterWidth,
-            roadCenterHeight
-        );
-        roadGraphics.setDepth(1);
+        // Create curved path for road center line
+        this.roadPath = this.createRoadPath(centerX, centerY, halfParkingW, halfParkingH, roadOffset);
         
-        // Draw road center line (for reference)
-        const roadCenterGraphics = this.add.graphics();
-        roadCenterGraphics.lineStyle(2, this.roadColor, 1);
-        roadCenterGraphics.strokeRect(
-            centerX - roadCenterWidth / 2,
-            centerY - roadCenterHeight / 2,
-            roadCenterWidth,
-            roadCenterHeight
-        );
-        roadCenterGraphics.setDepth(2);
+        // Draw road using the path
+        this.drawRoadWithTexture();
         
         // Draw parking area rectangle
         const parkingRect = this.add.rectangle(
@@ -151,13 +140,103 @@ class LevelEditorScene extends Phaser.Scene {
         
         // Store references
         this.parkingRect = parkingRect;
-        this.roadGraphics = roadGraphics;
-        this.roadCenterGraphics = roadCenterGraphics;
         this.gridGraphics = gridGraphics;
         this.parkingCenterX = centerX;
         this.parkingCenterY = centerY;
         this.gridStartX = gridStartX;
         this.gridStartY = gridStartY;
+    }
+    
+    // Create a path with curved corners around the parking area
+    createRoadPath(centerX, centerY, halfW, halfH, offset) {
+        const path = new Phaser.Curves.Path();
+        
+        // Road center line position (distance from parking edge)
+        const left = centerX - halfW - offset;
+        const right = centerX + halfW + offset;
+        const top = centerY - halfH - offset;
+        const bottom = centerY + halfH + offset;
+        
+        // Corner radius (use outer radius for the road path)
+        const radius = this.roadOuterRadius;
+        
+        // Create rounded rectangle path - moving clockwise from top-left
+        // Start at top-left corner (after the curve)
+        path.moveTo(left + radius, top);
+        
+        // TOP EDGE - straight line to top-right corner
+        path.lineTo(right - radius, top);
+        
+        // TOP-RIGHT CORNER - arc curve (90 degrees clockwise)
+        const topRightCurve = new Phaser.Curves.Ellipse(
+            right - radius, top + radius, // center
+            radius, radius, // x radius, y radius
+            270, 360, // start angle, end angle (in degrees)
+            false, 0 // clockwise, rotation
+        );
+        path.add(topRightCurve);
+        
+        // RIGHT EDGE - straight line to bottom-right corner
+        path.lineTo(right, bottom - radius);
+        
+        // BOTTOM-RIGHT CORNER - arc curve (90 degrees clockwise)
+        const bottomRightCurve = new Phaser.Curves.Ellipse(
+            right - radius, bottom - radius, // center
+            radius, radius,
+            0, 90,
+            false, 0
+        );
+        path.add(bottomRightCurve);
+        
+        // BOTTOM EDGE - straight line to bottom-left corner
+        path.lineTo(left + radius, bottom);
+        
+        // BOTTOM-LEFT CORNER - arc curve (90 degrees clockwise)
+        const bottomLeftCurve = new Phaser.Curves.Ellipse(
+            left + radius, bottom - radius, // center
+            radius, radius,
+            90, 180,
+            false, 0
+        );
+        path.add(bottomLeftCurve);
+        
+        // LEFT EDGE - straight line back to top-left corner
+        path.lineTo(left, top + radius);
+        
+        // TOP-LEFT CORNER - arc curve back to start (90 degrees clockwise)
+        const topLeftCurve = new Phaser.Curves.Ellipse(
+            left + radius, top + radius, // center
+            radius, radius,
+            180, 270,
+            false, 0
+        );
+        path.add(topLeftCurve);
+        
+        return path;
+    }
+    
+    // Draw road with texture along the path
+    drawRoadWithTexture() {
+        // For now, use graphics to draw the road with the path
+        // Later we can enhance this to use rope/mesh for texture deformation
+        
+        const roadGraphics = this.add.graphics();
+        roadGraphics.lineStyle(this.roadWidth, this.roadFillColor, this.roadFillAlpha);
+        
+        // Draw the path
+        this.roadPath.draw(roadGraphics);
+        
+        roadGraphics.setDepth(1);
+        
+        // Draw center line guide
+        const centerLineGraphics = this.add.graphics();
+        centerLineGraphics.lineStyle(2, this.roadColor, 1);
+        this.roadPath.draw(centerLineGraphics);
+        centerLineGraphics.setDepth(2);
+        
+        // Store references
+        this.roadGraphics = roadGraphics;
+        this.roadCenterGraphics = centerLineGraphics;
     }
     
     redrawParkingAndRoad() {
@@ -310,6 +389,30 @@ class LevelEditorScene extends Phaser.Scene {
         
         const roadWidthInput = this.createInput(inputX, startY + lineHeight * 2, this.roadWidth, (value) => {
             this.roadWidth = Math.max(5, Math.min(100, value));
+            this.redrawParkingAndRoad();
+        });
+        
+        // Road Outer Radius control
+        this.add.text(labelX, startY + lineHeight * 3, 'Outer Radius:', {
+            fontSize: '14px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#000000'
+        });
+        
+        const outerRadiusInput = this.createInput(inputX, startY + lineHeight * 3, this.roadOuterRadius, (value) => {
+            this.roadOuterRadius = Math.max(10, Math.min(200, value));
+            this.redrawParkingAndRoad();
+        });
+        
+        // Road Inner Radius control
+        this.add.text(labelX, startY + lineHeight * 4, 'Inner Radius:', {
+            fontSize: '14px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#000000'
+        });
+        
+        const innerRadiusInput = this.createInput(inputX, startY + lineHeight * 4, this.roadInnerRadius, (value) => {
+            this.roadInnerRadius = Math.max(5, Math.min(100, value));
             this.redrawParkingAndRoad();
         });
     }
@@ -831,7 +934,10 @@ class LevelEditorScene extends Phaser.Scene {
                 width: this.roadWidth,
                 color: this.roadColor,
                 fillColor: this.roadFillColor,
-                fillAlpha: this.roadFillAlpha
+                fillAlpha: this.roadFillAlpha,
+                outerRadius: this.roadOuterRadius,
+                innerRadius: this.roadInnerRadius,
+                segmentsPerCorner: this.roadSegmentsPerCorner
             },
             cars: this.cars.map(carData => ({
                 type: carData.type,
@@ -888,6 +994,33 @@ class LevelEditorScene extends Phaser.Scene {
                 confirmText.destroy();
             }
         });
+    }
+
+    // Get a point on the road path at a given progress (0 to 1)
+    getPointOnRoadPath(t) {
+        if (!this.roadPath) return null;
+        return this.roadPath.getPoint(t);
+    }
+    
+    // Get tangent (direction) on the road path at a given progress
+    getTangentOnRoadPath(t) {
+        if (!this.roadPath) return null;
+        return this.roadPath.getTangent(t);
+    }
+    
+    // Get the road path for use in other scenes
+    getRoadPathData() {
+        if (!this.roadPath) return null;
+        
+        return {
+            centerX: this.parkingCenterX,
+            centerY: this.parkingCenterY,
+            halfW: this.parkingWidth / 2,
+            halfH: this.parkingHeight / 2,
+            offset: this.roadWidth / 2,
+            outerRadius: this.roadOuterRadius,
+            innerRadius: this.roadInnerRadius
+        };
     }
 
     update() {

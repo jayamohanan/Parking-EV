@@ -263,6 +263,11 @@ var CONFIG = {
         ROAD_FILL_COLOR: 0x777777,     // Road surface color
         ROAD_FILL_ALPHA: 0.7,          // Road transparency
         
+        // Road corner radii (for curved corners)
+        ROAD_OUTER_RADIUS: 80,         // Outer corner radius (larger, smoother curve)
+        ROAD_INNER_RADIUS: 20,         // Inner corner radius (tighter curve)
+        ROAD_SEGMENTS_PER_CORNER: 16,  // Number of segments for smooth curves
+        
         // Car properties
         CAR_LENGTH: 2,                 // Car occupies 2 cells
     }
