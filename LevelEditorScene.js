@@ -106,7 +106,7 @@ class LevelEditorScene extends Phaser.Scene {
         this.drawRoadWithTexture();
         
         // Draw parking area rectangle
-        const parkingRect = this.add.rectangle(
+        this.parkingRect = this.add.rectangle(
             centerX,
             centerY,
             this.parkingWidth,
@@ -114,12 +114,13 @@ class LevelEditorScene extends Phaser.Scene {
             this.parkingColor,
             this.parkingAlpha
         );
-        parkingRect.setStrokeStyle(CONFIG.EDITOR.PARKING_BORDER_WIDTH, CONFIG.EDITOR.PARKING_BORDER_COLOR);
-        parkingRect.setDepth(3);
+        this.parkingRect.setStrokeStyle(CONFIG.EDITOR.PARKING_BORDER_WIDTH, CONFIG.EDITOR.PARKING_BORDER_COLOR);
+        this.parkingRect.setDepth(3);
         
         // Draw grid lines
-        const gridGraphics = this.add.graphics();
-        gridGraphics.lineStyle(CONFIG.EDITOR.GRID_LINE_WIDTH, CONFIG.EDITOR.GRID_LINE_COLOR, CONFIG.EDITOR.GRID_LINE_ALPHA);
+        this.gridGraphics = this.add.graphics();
+        this.gridGraphics.lineStyle(CONFIG.EDITOR.GRID_LINE_WIDTH, CONFIG.EDITOR.GRID_LINE_COLOR, CONFIG.EDITOR.GRID_LINE_ALPHA);
+        this.gridGraphics.setDepth(4);
         
         const gridStartX = centerX - this.parkingWidth / 2;
         const gridStartY = centerY - this.parkingHeight / 2;
@@ -127,20 +128,16 @@ class LevelEditorScene extends Phaser.Scene {
         // Draw vertical lines
         for (let col = 0; col <= this.gridCols; col++) {
             const x = gridStartX + col * this.cellSize;
-            gridGraphics.lineBetween(x, gridStartY, x, gridStartY + this.parkingHeight);
+            this.gridGraphics.lineBetween(x, gridStartY, x, gridStartY + this.parkingHeight);
         }
         
         // Draw horizontal lines
         for (let row = 0; row <= this.gridRows; row++) {
             const y = gridStartY + row * this.cellSize;
-            gridGraphics.lineBetween(gridStartX, y, gridStartX + this.parkingWidth, y);
+            this.gridGraphics.lineBetween(gridStartX, y, gridStartX + this.parkingWidth, y);
         }
         
-        gridGraphics.setDepth(4); // Above parking area
-        
-        // Store references
-        this.parkingRect = parkingRect;
-        this.gridGraphics = gridGraphics;
+        this.gridGraphics.setDepth(4); // Above parking area
         this.parkingCenterX = centerX;
         this.parkingCenterY = centerY;
         this.gridStartX = gridStartX;
@@ -217,31 +214,60 @@ class LevelEditorScene extends Phaser.Scene {
     
     // Draw road with texture along the path
     drawRoadWithTexture() {
-        // For now, use graphics to draw the road with the path
-        // Later we can enhance this to use rope/mesh for texture deformation
+        // Create road sprites container
+        if (!this.roadSprites) {
+            this.roadSprites = [];
+        }
         
-        const roadGraphics = this.add.graphics();
-        roadGraphics.lineStyle(this.roadWidth, this.roadFillColor, this.roadFillAlpha);
+        // Sample points along the path
+        const numSegments = 200; // Higher number = smoother road
+        const points = [];
+        for (let i = 0; i <= numSegments; i++) {
+            const t = i / numSegments;
+            const point = this.roadPath.getPoint(t);
+            points.push(point);
+        }
         
-        // Draw the path
-        this.roadPath.draw(roadGraphics);
-        
-        roadGraphics.setDepth(1);
+        // Create tiled sprites along the path
+        for (let i = 0; i < points.length - 1; i++) {
+            const p1 = points[i];
+            const p2 = points[i + 1];
+            
+            // Calculate segment properties
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx);
+            
+            // Create tiled sprite for this segment
+            const roadSegment = this.add.tileSprite(
+                p1.x, p1.y,
+                length, this.roadWidth,
+                'road'
+            );
+            roadSegment.setOrigin(0, 0.5);
+            roadSegment.setRotation(angle);
+            roadSegment.setDepth(1);
+            
+            this.roadSprites.push(roadSegment);
+        }
         
         // Draw center line guide
         const centerLineGraphics = this.add.graphics();
-        centerLineGraphics.lineStyle(2, this.roadColor, 1);
+        centerLineGraphics.lineStyle(2, this.roadColor, 0.3);
         this.roadPath.draw(centerLineGraphics);
         centerLineGraphics.setDepth(2);
         
         // Store references
-        this.roadGraphics = roadGraphics;
         this.roadCenterGraphics = centerLineGraphics;
     }
     
     redrawParkingAndRoad() {
         // Destroy existing graphics
-        if (this.roadGraphics) this.roadGraphics.destroy();
+        if (this.roadSprites) {
+            this.roadSprites.forEach(sprite => sprite.destroy());
+            this.roadSprites = [];
+        }
         if (this.roadCenterGraphics) this.roadCenterGraphics.destroy();
         if (this.parkingRect) this.parkingRect.destroy();
         if (this.gridGraphics) this.gridGraphics.destroy();
@@ -327,6 +353,30 @@ class LevelEditorScene extends Phaser.Scene {
         backButton.on('pointerdown', () => {
             this.scene.stop('LevelEditorScene');
             this.scene.start('GameScene');
+        });
+        
+        // Parking Visibility Toggle button
+        this.parkingVisible = true;
+        const toggleButton = this.add.rectangle(sceneWidth - 120, controlY + 140, 200, 50, 0x9C27B0);
+        toggleButton.setStrokeStyle(3, 0x6A1B9A);
+        toggleButton.setInteractive({ useHandCursor: true });
+        
+        this.toggleButtonText = this.add.text(sceneWidth - 120, controlY + 140, 'HIDE PARKING', {
+            fontSize: '18px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#FFFFFF',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+        
+        toggleButton.on('pointerdown', () => {
+            this.parkingVisible = !this.parkingVisible;
+            if (this.parkingRect) {
+                this.parkingRect.setVisible(this.parkingVisible);
+            }
+            if (this.gridGraphics) {
+                this.gridGraphics.setVisible(this.parkingVisible);
+            }
+            this.toggleButtonText.setText(this.parkingVisible ? 'HIDE PARKING' : 'SHOW PARKING');
         });
         
         // Dimension controls (left side below editor area)

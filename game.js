@@ -425,15 +425,40 @@
                 roadData.innerRadius || 20
             );
             
-            // Draw road using path
-            const roadGraphics = this.add.graphics();
-            roadGraphics.lineStyle(roadData.width, roadData.fillColor, roadData.fillAlpha);
-            this.roadPath.draw(roadGraphics);
-            roadGraphics.setDepth(1);
+            // Draw road using tiled sprites
+            const numSegments = 200;
+            const points = [];
+            for (let i = 0; i <= numSegments; i++) {
+                const t = i / numSegments;
+                const point = this.roadPath.getPoint(t);
+                points.push(point);
+            }
             
-            // Draw road center line
+            // Create tiled sprites along the path
+            for (let i = 0; i < points.length - 1; i++) {
+                const p1 = points[i];
+                const p2 = points[i + 1];
+                
+                // Calculate segment properties
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx);
+                
+                // Create tiled sprite for this segment
+                const roadSegment = this.add.tileSprite(
+                    p1.x, p1.y,
+                    length, roadData.width,
+                    'road'
+                );
+                roadSegment.setOrigin(0, 0.5);
+                roadSegment.setRotation(angle);
+                roadSegment.setDepth(1);
+            }
+            
+            // Draw road center line guide (optional, lighter)
             const roadCenterGraphics = this.add.graphics();
-            roadCenterGraphics.lineStyle(2, roadData.color, 1);
+            roadCenterGraphics.lineStyle(2, roadData.color, 0.3);
             this.roadPath.draw(roadCenterGraphics);
             roadCenterGraphics.setDepth(2);
             
