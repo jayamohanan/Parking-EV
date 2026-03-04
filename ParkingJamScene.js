@@ -20,7 +20,7 @@ class ParkingJamScene extends Phaser.Scene {
 
     preload() {
         // Load vehicle sprites
-        this.load.image('car', 'graphics/vehicles/car.png');
+        this.load.image('car', 'graphics/vehicles/car_1x2.png');
         
         // Load charging effect
         this.load.image('bolt', 'graphics/bolt_64.png');

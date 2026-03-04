@@ -5,16 +5,25 @@ class LevelEditorScene extends Phaser.Scene {
     }
 
     init() {
-        this.cars = [];               // Array of placed cars {sprite, type, x, y, rotation}
+        this.cars = [];               // Array of placed cars {sprite, type, gridRow, gridCol, isHorizontal}
         this.selectedCar = null;      // Currently selected car
         this.selectedCarType = 'car'; // Current car type from dropdown
         this.isDragging = false;
         this.editorBounds = null;     // Top half area bounds
         
-        // Parking and road dimensions (from config, can be adjusted)
-        this.parkingWidth = CONFIG.EDITOR.PARKING_WIDTH;
-        this.parkingHeight = CONFIG.EDITOR.PARKING_HEIGHT;
+        // Grid configuration
+        this.gridCols = CONFIG.EDITOR.GRID_COLS;
+        this.gridRows = CONFIG.EDITOR.GRID_ROWS;
+        this.cellSize = CONFIG.EDITOR.CELL_SIZE;
+        this.carLength = CONFIG.EDITOR.CAR_LENGTH; // Car occupies 2 cells
+        
+        // Calculate parking dimensions from grid
+        this.parkingWidth = this.gridCols * this.cellSize;
+        this.parkingHeight = this.gridRows * this.cellSize;
         this.roadWidth = CONFIG.EDITOR.ROAD_WIDTH;
+        
+        // Grid to track occupied cells (true = occupied, false = empty)
+        this.gridOccupied = Array(this.gridRows).fill(null).map(() => Array(this.gridCols).fill(false));
         
         // Colors and transparency
         this.parkingColor = CONFIG.EDITOR.PARKING_COLOR;
@@ -26,7 +35,7 @@ class LevelEditorScene extends Phaser.Scene {
 
     preload() {
         // Load all vehicle sprites from graphics/vehicles folder
-        this.load.image('car', 'graphics/vehicles/car.png');
+        this.load.image('car', 'graphics/vehicles/car_1x2.png');
         // Add more vehicle types as they become available
     }
 
@@ -119,12 +128,36 @@ class LevelEditorScene extends Phaser.Scene {
         parkingRect.setStrokeStyle(CONFIG.EDITOR.PARKING_BORDER_WIDTH, CONFIG.EDITOR.PARKING_BORDER_COLOR);
         parkingRect.setDepth(3);
         
+        // Draw grid lines
+        const gridGraphics = this.add.graphics();
+        gridGraphics.lineStyle(CONFIG.EDITOR.GRID_LINE_WIDTH, CONFIG.EDITOR.GRID_LINE_COLOR, CONFIG.EDITOR.GRID_LINE_ALPHA);
+        
+        const gridStartX = centerX - this.parkingWidth / 2;
+        const gridStartY = centerY - this.parkingHeight / 2;
+        
+        // Draw vertical lines
+        for (let col = 0; col <= this.gridCols; col++) {
+            const x = gridStartX + col * this.cellSize;
+            gridGraphics.lineBetween(x, gridStartY, x, gridStartY + this.parkingHeight);
+        }
+        
+        // Draw horizontal lines
+        for (let row = 0; row <= this.gridRows; row++) {
+            const y = gridStartY + row * this.cellSize;
+            gridGraphics.lineBetween(gridStartX, y, gridStartX + this.parkingWidth, y);
+        }
+        
+        gridGraphics.setDepth(4); // Above parking area
+        
         // Store references
         this.parkingRect = parkingRect;
         this.roadGraphics = roadGraphics;
         this.roadCenterGraphics = roadCenterGraphics;
+        this.gridGraphics = gridGraphics;
         this.parkingCenterX = centerX;
         this.parkingCenterY = centerY;
+        this.gridStartX = gridStartX;
+        this.gridStartY = gridStartY;
     }
     
     redrawParkingAndRoad() {
@@ -132,6 +165,7 @@ class LevelEditorScene extends Phaser.Scene {
         if (this.roadGraphics) this.roadGraphics.destroy();
         if (this.roadCenterGraphics) this.roadCenterGraphics.destroy();
         if (this.parkingRect) this.parkingRect.destroy();
+        if (this.gridGraphics) this.gridGraphics.destroy();
         
         // Redraw with updated dimensions
         this.createParkingAndRoad();
@@ -225,49 +259,67 @@ class LevelEditorScene extends Phaser.Scene {
         const sceneHeight = this.cameras.main.height;
         const startY = sceneHeight * 0.5 + 280; // Moved down to avoid overlap with rotation panel (at +180)
         const labelX = 60;
-        const inputX = 170;
+        const inputX = 155;
         const lineHeight = 45;
         
         // Title
-        this.add.text(labelX, startY - 30, 'PARKING & ROAD:', {
+        this.add.text(labelX, startY - 30, 'GRID & ROAD:', {
             fontSize: '16px',
             fontFamily: CONFIG.FONT_FAMILY,
             color: '#000000',
             fontStyle: 'bold'
         });
         
-        // Parking Width control
-        this.add.text(labelX, startY, 'Parking Width:', {
+        // Grid Columns control
+        this.add.text(labelX, startY, 'Grid Cols:', {
             fontSize: '14px',
             fontFamily: CONFIG.FONT_FAMILY,
             color: '#000000'
         });
         
-        const parkingWidthInput = this.createInput(inputX, startY, this.parkingWidth, (value) => {
-            this.parkingWidth = Math.max(100, Math.min(700, value));
+        const gridColsInput = this.createInput(inputX, startY, this.gridCols, (value) => {
+            this.gridCols = Math.max(3, Math.min(10, value));
+            this.parkingWidth = this.gridCols * this.cellSize;
+            this.gridOccupied = Array(this.gridRows).fill(null).map(() => Array(this.gridCols).fill(false));
             this.redrawParkingAndRoad();
         });
         
-        // Parking Height control
-        this.add.text(labelX, startY + lineHeight, 'Parking Height:', {
+        // Grid Rows control
+        this.add.text(labelX, startY + lineHeight, 'Grid Rows:', {
             fontSize: '14px',
             fontFamily: CONFIG.FONT_FAMILY,
             color: '#000000'
         });
         
-        const parkingHeightInput = this.createInput(inputX, startY + lineHeight, this.parkingHeight, (value) => {
-            this.parkingHeight = Math.max(100, Math.min(500, value));
+        const gridRowsInput = this.createInput(inputX, startY + lineHeight, this.gridRows, (value) => {
+            this.gridRows = Math.max(3, Math.min(10, value));
+            this.parkingHeight = this.gridRows * this.cellSize;
+            this.gridOccupied = Array(this.gridRows).fill(null).map(() => Array(this.gridCols).fill(false));
+            this.redrawParkingAndRoad();
+        });
+        
+        // Cell Size control
+        this.add.text(labelX, startY + lineHeight * 2, 'Cell Size:', {
+            fontSize: '14px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#000000'
+        });
+        
+        const cellSizeInput = this.createInput(inputX, startY + lineHeight * 2, this.cellSize, (value) => {
+            this.cellSize = Math.max(40, Math.min(120, value));
+            this.parkingWidth = this.gridCols * this.cellSize;
+            this.parkingHeight = this.gridRows * this.cellSize;
             this.redrawParkingAndRoad();
         });
         
         // Road Width control
-        this.add.text(labelX, startY + lineHeight * 2, 'Road Width:', {
+        this.add.text(labelX, startY + lineHeight * 3, 'Road Width:', {
             fontSize: '14px',
             fontFamily: CONFIG.FONT_FAMILY,
             color: '#000000'
         });
         
-        const roadWidthInput = this.createInput(inputX, startY + lineHeight * 2, this.roadWidth, (value) => {
+        const roadWidthInput = this.createInput(inputX, startY + lineHeight * 3, this.roadWidth, (value) => {
             this.roadWidth = Math.max(5, Math.min(100, value));
             this.redrawParkingAndRoad();
         });
@@ -331,48 +383,45 @@ class LevelEditorScene extends Phaser.Scene {
         this.rotationPanel.setVisible(false);
         this.rotationPanel.setDepth(20); // Above cars (depth 10)
         
-        const panelBg = this.add.rectangle(0, 0, 280, 80, 0xFFFFFF);
+        const panelBg = this.add.rectangle(0, 0, 220, 80, 0xFFFFFF);
         panelBg.setStrokeStyle(3, 0x333333);
         this.rotationPanel.add(panelBg);
         
         // Rotation label
-        const rotationLabel = this.add.text(-100, 0, 'Rotation (degrees):', {
+        const rotationLabel = this.add.text(0, -15, 'Orientation:', {
             fontSize: '16px',
             fontFamily: CONFIG.FONT_FAMILY,
-            color: '#000000'
-        }).setOrigin(0, 0.5);
+            color: '#000000',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
         this.rotationPanel.add(rotationLabel);
         
-        // Create HTML input for rotation
-        this.rotationInput = document.createElement('input');
-        this.rotationInput.type = 'number';
-        this.rotationInput.value = '0';
-        this.rotationInput.style.position = 'absolute';
-        this.rotationInput.style.width = '80px';
-        this.rotationInput.style.height = '30px';
-        this.rotationInput.style.fontSize = '16px';
-        this.rotationInput.style.padding = '5px';
-        this.rotationInput.style.border = '2px solid #333';
-        this.rotationInput.style.borderRadius = '4px';
-        this.rotationInput.style.textAlign = 'center';
+        // Rotate 90° button
+        const rotateBtn = this.add.rectangle(0, 20, 140, 35, 0x2196F3);
+        rotateBtn.setStrokeStyle(2, 0x1565C0);
+        rotateBtn.setInteractive({ useHandCursor: true });
+        this.rotationPanel.add(rotateBtn);
         
-        const gameContainer = document.getElementById('game-container');
-        if (gameContainer) {
-            gameContainer.appendChild(this.rotationInput);
-            
-            // Will be positioned when panel is shown
-            this.rotationInput.style.display = 'none';
-            
-            // Handle value changes
-            this.rotationInput.addEventListener('change', () => {
-                const value = parseFloat(this.rotationInput.value) || 0;
-                this.setCarRotation(value);
-            });
-            
-            // Store reference
-            if (!this.inputElements) this.inputElements = [];
-            this.inputElements.push(this.rotationInput);
-        }
+        const rotateBtnText = this.add.text(0, 20, 'Rotate 90°', {
+            fontSize: '16px',
+            fontFamily: CONFIG.FONT_FAMILY,
+            color: '#FFFFFF',
+            fontStyle: 'bold'
+        }).setOrigin(0.5);
+        this.rotationPanel.add(rotateBtnText);
+        
+        // Button handler
+        rotateBtn.on('pointerdown', () => this.rotate90Degrees());
+    }
+    
+    rotate90Degrees() {
+        if (!this.selectedCar) return;
+        
+        // Toggle between horizontal (0°) and vertical (90°)
+        this.selectedCar.isHorizontal = !this.selectedCar.isHorizontal;
+        this.selectedCar.sprite.angle = this.selectedCar.isHorizontal ? 0 : 90;
+        
+        console.log('Car orientation:', this.selectedCar.isHorizontal ? 'Horizontal' : 'Vertical');
     }
     
     updateRotationInputPosition() {
@@ -388,42 +437,120 @@ class LevelEditorScene extends Phaser.Scene {
         const panelY = sceneHeight * 0.5 + 180;
         
         this.rotationInput.style.left = (rect.left + panelX * rect.width / sceneWidth) + 'px';
-        this.rotationInput.style.top = (rect.top + panelY * rect.height / sceneHeight - 15) + 'px';
-        this.rotationInput.style.display = 'block';
+        // No longer needed - rotation button is part of the panel
+    }
+
+    // Parse vehicle dimensions from filename (e.g., "car_1x2" means 1 cell wide, 2 cells tall)
+    getVehicleDimensions(vehicleType) {
+        // Default dimensions (backward compatibility)
+        let width = 2;
+        let height = 1;
+        
+        // Parse format: vehicleName_WxH (e.g., car_1x2, jeep_3x2)
+        const match = vehicleType.match(/_(\d+)x(\d+)$/);
+        if (match) {
+            width = parseInt(match[1]);  // Width in cells (horizontal)
+            height = parseInt(match[2]); // Height in cells (vertical)
+        }
+        
+        return { width, height };
     }
 
     spawnCar() {
-        const centerX = this.editorBounds.width / 2;
-        const centerY = this.editorBounds.height / 2;
+        // Get vehicle dimensions from the selected car type name
+        const dimensions = this.getVehicleDimensions(this.selectedCarType);
+        const { width, height } = dimensions;
+        
+        // Find center grid position for spawning
+        const centerCol = Math.floor(this.gridCols / 2);
+        const centerRow = Math.floor(this.gridRows / 2);
+        
+        // Try to spawn horizontally first
+        if (this.canPlaceCar(centerRow, centerCol, true, width, height)) {
+            this.createCarAtGrid(centerRow, centerCol, true, width, height);
+        } else if (this.canPlaceCar(centerRow, centerCol, false, width, height)) {
+            // Try vertical if horizontal doesn't fit
+            this.createCarAtGrid(centerRow, centerCol, false, width, height);
+        } else {
+            console.log('Cannot spawn car - no space at center');
+        }
+    }
+    
+    canPlaceCar(row, col, isHorizontal, width, height) {
+        // Check if car can fit at this position based on its dimensions
+        if (isHorizontal) {
+            // Horizontal: car uses 'width' cells horizontally and 'height' cells vertically
+            if (col + width > this.gridCols || row + height > this.gridRows) return false;
+            // Check all cells that the car would occupy
+            for (let r = row; r < row + height; r++) {
+                for (let c = col; c < col + width; c++) {
+                    if (this.gridOccupied[r][c]) return false;
+                }
+            }
+            return true;
+        } else {
+            // Vertical (90° rotation): width and height are swapped
+            if (col + height > this.gridCols || row + width > this.gridRows) return false;
+            // Check all cells that the car would occupy
+            for (let r = row; r < row + width; r++) {
+                for (let c = col; c < col + height; c++) {
+                    if (this.gridOccupied[r][c]) return false;
+                }
+            }
+            return true;
+        }
+    }
+    
+    createCarAtGrid(row, col, isHorizontal, width, height) {
+        // Calculate pixel position (center of car span)
+        const cellCenterX = this.gridStartX + col * this.cellSize + this.cellSize / 2;
+        const cellCenterY = this.gridStartY + row * this.cellSize + this.cellSize / 2;
+        
+        let carX, carY;
+        if (isHorizontal) {
+            // Car spans 'width' cells horizontally and 'height' cells vertically
+            carX = cellCenterX + (width - 1) * this.cellSize / 2;
+            carY = cellCenterY + (height - 1) * this.cellSize / 2;
+        } else {
+            // Vertical (90° rotation): dimensions are swapped
+            carX = cellCenterX + (height - 1) * this.cellSize / 2;
+            carY = cellCenterY + (width - 1) * this.cellSize / 2;
+        }
         
         // Create car sprite
-        const carSprite = this.add.sprite(centerX, centerY, this.selectedCarType);
+        const carSprite = this.add.sprite(carX, carY, this.selectedCarType);
         carSprite.setOrigin(0.5);
         carSprite.setInteractive({ useHandCursor: true, draggable: true });
-        carSprite.setScale(0.3); // Adjust scale as needed
-        carSprite.setDepth(10); // Above parking (depth 3) and road (depth 1-2)
+        carSprite.setScale(0.3);
+        carSprite.setDepth(10);
+        carSprite.angle = isHorizontal ? 0 : 90;
         
         // Store car data
         const carData = {
             sprite: carSprite,
             type: this.selectedCarType,
-            x: centerX,
-            y: centerY,
-            rotation: 0
+            gridRow: row,
+            gridCol: col,
+            isHorizontal: isHorizontal,
+            width: width,
+            height: height
         };
         
         this.cars.push(carData);
         
+        // Mark grid cells as occupied
+        this.markGridOccupied(row, col, isHorizontal, true, width, height);
+        
         // Setup drag handlers
         carSprite.on('drag', (pointer, dragX, dragY) => {
-            // Constrain to editor bounds
-            const constrainedX = Phaser.Math.Clamp(dragX, 0, this.editorBounds.width);
-            const constrainedY = Phaser.Math.Clamp(dragY, 0, this.editorBounds.height);
-            
-            carSprite.x = constrainedX;
-            carSprite.y = constrainedY;
-            carData.x = constrainedX;
-            carData.y = constrainedY;
+            // Just move sprite visually during drag
+            carSprite.x = dragX;
+            carSprite.y = dragY;
+        });
+        
+        carSprite.on('dragend', (pointer) => {
+            // Snap to nearest grid cell
+            this.snapCarToGrid(carData);
         });
         
         carSprite.on('pointerdown', (pointer) => {
@@ -434,7 +561,61 @@ class LevelEditorScene extends Phaser.Scene {
         // Auto-select the newly spawned car
         this.selectCar(carData);
         
-        console.log('Spawned car at:', centerX, centerY);
+        console.log('Spawned car at grid:', row, col, 'orientation:', isHorizontal ? 'horizontal' : 'vertical', 'dimensions:', width + 'x' + height);
+    }
+    
+    markGridOccupied(row, col, isHorizontal, occupied, width, height) {
+        if (isHorizontal) {
+            // Horizontal: car uses 'width' cells horizontally and 'height' cells vertically
+            for (let r = row; r < row + height; r++) {
+                for (let c = col; c < col + width; c++) {
+                    this.gridOccupied[r][c] = occupied;
+                }
+            }
+        } else {
+            // Vertical (90° rotation): width and height are swapped
+            for (let r = row; r < row + width; r++) {
+                for (let c = col; c < col + height; c++) {
+                    this.gridOccupied[r][c] = occupied;
+                }
+            }
+        }
+    }
+    
+    snapCarToGrid(carData) {
+        // Clear old grid position
+        this.markGridOccupied(carData.gridRow, carData.gridCol, carData.isHorizontal, false, carData.width, carData.height);
+        
+        // Find nearest grid cell to car center
+        const relX = carData.sprite.x - this.gridStartX;
+        const relY = carData.sprite.y - this.gridStartY;
+        
+        let nearestCol = Math.floor(relX / this.cellSize);
+        let nearestRow = Math.floor(relY / this.cellSize);
+        
+        // Clamp to valid grid range
+        nearestCol = Phaser.Math.Clamp(nearestCol, 0, this.gridCols - 1);
+        nearestRow = Phaser.Math.Clamp(nearestRow, 0, this.gridRows - 1);
+        
+        // Check if car can fit at new position
+        if (this.canPlaceCar(nearestRow, nearestCol, carData.isHorizontal, carData.width, carData.height)) {
+            // Valid position - update car
+            carData.gridRow = nearestRow;
+            carData.gridCol = nearestCol;
+            this.markGridOccupied(nearestRow, nearestCol, carData.isHorizontal, true, carData.width, carData.height);
+        }
+        
+        // Position car at grid location (recalculate pixel position)
+        const cellCenterX = this.gridStartX + carData.gridCol * this.cellSize + this.cellSize / 2;
+        const cellCenterY = this.gridStartY + carData.gridRow * this.cellSize + this.cellSize / 2;
+        
+        if (carData.isHorizontal) {
+            carData.sprite.x = cellCenterX + (carData.width - 1) * this.cellSize / 2;
+            carData.sprite.y = cellCenterY + (carData.height - 1) * this.cellSize / 2;
+        } else {
+            carData.sprite.x = cellCenterX + (carData.height - 1) * this.cellSize / 2;
+            carData.sprite.y = cellCenterY + (carData.width - 1) * this.cellSize / 2;
+        }
     }
 
     selectCar(carData) {
@@ -449,8 +630,6 @@ class LevelEditorScene extends Phaser.Scene {
         
         // Show rotation panel
         this.rotationPanel.setVisible(true);
-        this.updateRotationDisplay();
-        this.updateRotationInputPosition();
         
         console.log('Selected car:', carData);
     }
@@ -460,14 +639,14 @@ class LevelEditorScene extends Phaser.Scene {
             this.selectedCar.sprite.clearTint();
             this.selectedCar = null;
             this.rotationPanel.setVisible(false);
-            if (this.rotationInput) {
-                this.rotationInput.style.display = 'none';
-            }
         }
     }
 
     deleteSelectedCar() {
         if (!this.selectedCar) return;
+        
+        // Clear grid occupation
+        this.markGridOccupied(this.selectedCar.gridRow, this.selectedCar.gridCol, this.selectedCar.isHorizontal, false, this.selectedCar.width, this.selectedCar.height);
         
         // Remove from array
         const index = this.cars.indexOf(this.selectedCar);
@@ -481,39 +660,8 @@ class LevelEditorScene extends Phaser.Scene {
         // Deselect
         this.selectedCar = null;
         this.rotationPanel.setVisible(false);
-        if (this.rotationInput) {
-            this.rotationInput.style.display = 'none';
-        }
         
         console.log('Deleted car. Remaining cars:', this.cars.length);
-    }
-
-    rotateCar(degrees) {
-        if (!this.selectedCar) return;
-        
-        this.selectedCar.rotation += degrees;
-        this.selectedCar.rotation = this.selectedCar.rotation % 360;
-        this.selectedCar.sprite.angle = this.selectedCar.rotation;
-        
-        this.updateRotationDisplay();
-    }
-
-    setCarRotation(degrees) {
-        if (!this.selectedCar) return;
-        
-        this.selectedCar.rotation = degrees;
-        this.selectedCar.sprite.angle = degrees;
-        
-        this.updateRotationDisplay();
-    }
-
-    updateRotationDisplay() {
-        if (!this.selectedCar) return;
-        
-        const normalizedRotation = ((this.selectedCar.rotation % 360) + 360) % 360;
-        if (this.rotationInput) {
-            this.rotationInput.value = Math.round(normalizedRotation);
-        }
     }
 
     onPointerDown(pointer) {
@@ -539,9 +687,12 @@ class LevelEditorScene extends Phaser.Scene {
     copyLevelData() {
         // Generate level data JSON
         const levelData = {
+            grid: {
+                cols: this.gridCols,
+                rows: this.gridRows,
+                cellSize: this.cellSize
+            },
             parking: {
-                width: this.parkingWidth,
-                height: this.parkingHeight,
                 color: this.parkingColor,
                 alpha: this.parkingAlpha,
                 borderColor: CONFIG.EDITOR.PARKING_BORDER_COLOR,
@@ -555,9 +706,11 @@ class LevelEditorScene extends Phaser.Scene {
             },
             cars: this.cars.map(carData => ({
                 type: carData.type,
-                x: Math.round(carData.x),
-                y: Math.round(carData.y),
-                rotation: Math.round(carData.rotation),
+                gridRow: carData.gridRow,
+                gridCol: carData.gridCol,
+                isHorizontal: carData.isHorizontal,
+                width: carData.width,
+                height: carData.height,
                 chargeRequired: 100 // Default charge required
             }))
         };

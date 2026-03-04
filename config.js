@@ -243,9 +243,15 @@ var CONFIG = {
     
     // Level Editor settings
     EDITOR: {
-        // Parking area rectangle (inner rectangle)
-        PARKING_WIDTH: 600,            // Default width of parking area
-        PARKING_HEIGHT: 400,           // Default height of parking area
+        // Grid configuration (like Parking Jam 3D)
+        GRID_COLS: 6,                  // Number of columns in parking grid
+        GRID_ROWS: 6,                  // Number of rows in parking grid
+        CELL_SIZE: 80,                 // Size of each grid cell (pixels)
+        GRID_LINE_COLOR: 0xCCCCCC,     // Grid line color
+        GRID_LINE_WIDTH: 2,            // Grid line thickness
+        GRID_LINE_ALPHA: 0.5,          // Grid line transparency
+        
+        // Parking area (automatically calculated from grid)
         PARKING_COLOR: 0xEEEEEE,       // Light grey color for parking area
         PARKING_ALPHA: 1.0,            // Parking area transparency (0-1)
         PARKING_BORDER_COLOR: 0x666666, // Dark grey border
@@ -256,6 +262,9 @@ var CONFIG = {
         ROAD_COLOR: 0x555555,          // Dark grey color for road center line
         ROAD_FILL_COLOR: 0x777777,     // Road surface color
         ROAD_FILL_ALPHA: 0.7,          // Road transparency
+        
+        // Car properties
+        CAR_LENGTH: 2,                 // Car occupies 2 cells
     }
 };
 

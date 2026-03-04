@@ -50,7 +50,7 @@
             this.load.image('button', 'graphics/Button.png');
             
             // Load parking jam assets
-            this.load.image('car', 'graphics/vehicles/car.png');
+            this.load.image('car', 'graphics/vehicles/car_1x2.png');
             this.load.image('bolt', 'graphics/bolt_64.png');
             
             // Load level data
@@ -376,6 +376,9 @@
         loadLevel(levelData) {
             console.log('Loading level:', levelData);
             
+            // Store grid configuration
+            this.gridConfig = levelData.grid || { cols: 6, rows: 6, cellSize: 80 };
+            
             // Draw parking and road if they exist in level data
             if (levelData.parking && levelData.road) {
                 this.drawParkingAndRoad(levelData.parking, levelData.road);
@@ -402,14 +405,20 @@
             const centerX = sceneWidth / 2;
             const centerY = parkingAreaHeight / 2 + 30; // Slightly below center to account for title
             
+            // Calculate parking dimensions from grid
+            const parkingWidth = this.gridConfig.cols * this.gridConfig.cellSize;
+            const parkingHeight = this.gridConfig.rows * this.gridConfig.cellSize;
+            
+            // Store parking bounds for car spawning
+            this.parkingLeft = centerX - parkingWidth / 2;
+            this.parkingTop = centerY - parkingHeight / 2;
+            
             // Road dimensions: inner edge touches parking, extends outward by roadWidth
             // Road center line is at parking edge + roadWidth/2
-            const roadCenterWidth = parkingData.width + roadData.width;
-            const roadCenterHeight = parkingData.height + roadData.width;
+            const roadCenterWidth = parkingWidth + roadData.width;
+            const roadCenterHeight = parkingHeight + roadData.width;
             
             // Draw road surface (thick stroke)
-            // The road width extends roadWidth/2 on both sides of center line
-            // So inner edge is at parking edge, outer edge extends outward
             const roadGraphics = this.add.graphics();
             roadGraphics.lineStyle(roadData.width, roadData.fillColor, roadData.fillAlpha);
             roadGraphics.strokeRect(
@@ -435,8 +444,8 @@
             const parkingRect = this.add.rectangle(
                 centerX,
                 centerY,
-                parkingData.width,
-                parkingData.height,
+                parkingWidth,
+                parkingHeight,
                 parkingData.color,
                 parkingData.alpha
             );
@@ -445,9 +454,34 @@
         }
 
         spawnCar(carData) {
-            const carSprite = this.add.sprite(carData.x, carData.y, carData.type);
+            // Calculate pixel position from grid coordinates
+            const cellSize = this.gridConfig.cellSize;
+            const isHorizontal = carData.isHorizontal;
+            
+            // Get vehicle dimensions (use stored dimensions or parse from type name)
+            let width = carData.width;
+            let height = carData.height;
+            
+            // If dimensions not provided, parse from vehicle type name (backward compatibility)
+            if (!width || !height) {
+                const match = carData.type.match(/_(\d+)x(\d+)$/);
+                if (match) {
+                    width = parseInt(match[1]);
+                    height = parseInt(match[2]);
+                } else {
+                    width = 2;  // Default
+                    height = 1;
+                }
+            }
+            
+            // Car center is at grid position + half cell, offset by span
+            const carX = this.parkingLeft + (carData.gridCol * cellSize) + cellSize / 2 + (isHorizontal ? (width - 1) * cellSize / 2 : (height - 1) * cellSize / 2);
+            const carY = this.parkingTop + (carData.gridRow * cellSize) + cellSize / 2 + (isHorizontal ? (height - 1) * cellSize / 2 : (width - 1) * cellSize / 2);
+            const carAngle = isHorizontal ? 0 : 90;
+            
+            const carSprite = this.add.sprite(carX, carY, carData.type);
             carSprite.setOrigin(0.5);
-            carSprite.setAngle(carData.rotation);
+            carSprite.setAngle(carAngle);
             carSprite.setScale(0.3); // Adjust as needed
             carSprite.setDepth(10);
             
