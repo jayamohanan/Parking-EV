@@ -453,36 +453,108 @@
             parkingRect.setDepth(3);
         }
 
+        getOccupiedCellsForGame(anchorRow, anchorCol, orientation, width, length) {
+            const cells = [];
+            
+            switch(orientation) {
+                case 'up':
+                    for (let i = 0; i < length; i++) {
+                        for (let j = 0; j < width; j++) {
+                            cells.push({ row: anchorRow - i, col: anchorCol + j });
+                        }
+                    }
+                    break;
+                case 'down':
+                    for (let i = 0; i < length; i++) {
+                        for (let j = 0; j < width; j++) {
+                            cells.push({ row: anchorRow + i, col: anchorCol + j });
+                        }
+                    }
+                    break;
+                case 'left':
+                    for (let i = 0; i < length; i++) {
+                        for (let j = 0; j < width; j++) {
+                            cells.push({ row: anchorRow + j, col: anchorCol - i });
+                        }
+                    }
+                    break;
+                case 'right':
+                    for (let i = 0; i < length; i++) {
+                        for (let j = 0; j < width; j++) {
+                            cells.push({ row: anchorRow + j, col: anchorCol + i });
+                        }
+                    }
+                    break;
+            }
+            
+            return cells;
+        }
+
         spawnCar(carData) {
             // Calculate pixel position from grid coordinates
             const cellSize = this.gridConfig.cellSize;
-            const isHorizontal = carData.isHorizontal;
             
-            // Get vehicle dimensions (use stored dimensions or parse from type name)
-            let width = carData.width;
-            let height = carData.height;
+            // Get vehicle dimensions and orientation
+            let width, length, orientation;
             
-            // If dimensions not provided, parse from vehicle type name (backward compatibility)
-            if (!width || !height) {
+            // New system: orientation-based
+            if (carData.orientation) {
+                width = carData.width;
+                length = carData.length;
+                orientation = carData.orientation;
+            } 
+            // Backward compatibility: isHorizontal-based
+            else if (carData.isHorizontal !== undefined) {
+                width = carData.width || 1;
+                length = carData.height || 2;
+                orientation = carData.isHorizontal ? 'right' : 'up';
+            }
+            // Fallback: parse from type name
+            else {
                 const match = carData.type.match(/_(\d+)x(\d+)$/);
                 if (match) {
                     width = parseInt(match[1]);
-                    height = parseInt(match[2]);
+                    length = parseInt(match[2]);
                 } else {
-                    width = 2;  // Default
-                    height = 1;
+                    width = 1;
+                    length = 2;
                 }
+                orientation = 'up';
             }
             
-            // Car center is at grid position + half cell, offset by span
-            const carX = this.parkingLeft + (carData.gridCol * cellSize) + cellSize / 2 + (isHorizontal ? (width - 1) * cellSize / 2 : (height - 1) * cellSize / 2);
-            const carY = this.parkingTop + (carData.gridRow * cellSize) + cellSize / 2 + (isHorizontal ? (height - 1) * cellSize / 2 : (width - 1) * cellSize / 2);
-            const carAngle = isHorizontal ? 0 : 90;
+            // Calculate occupied cells based on anchor and orientation
+            const cells = this.getOccupiedCellsForGame(carData.gridRow, carData.gridCol, orientation, width, length);
+            
+            // Calculate center position as average of occupied cells
+            let sumRow = 0, sumCol = 0;
+            for (let cell of cells) {
+                sumRow += cell.row;
+                sumCol += cell.col;
+            }
+            const centerRow = sumRow / cells.length;
+            const centerCol = sumCol / cells.length;
+            
+            // Convert to pixel position
+            const carX = this.parkingLeft + centerCol * cellSize + cellSize / 2;
+            const carY = this.parkingTop + centerRow * cellSize + cellSize / 2;
+            
+            // Get rotation angle
+            const angles = { 'up': 0, 'right': 90, 'down': 180, 'left': 270 };
+            const carAngle = angles[orientation] || 0;
             
             const carSprite = this.add.sprite(carX, carY, carData.type);
             carSprite.setOrigin(0.5);
             carSprite.setAngle(carAngle);
-            carSprite.setScale(0.3); // Adjust as needed
+            
+            // Calculate sprite scale to fit in grid cells
+            // For a car_1x2 (width=1, length=2), it should fit in 64x128 pixels
+            const targetWidth = width * cellSize;   // e.g., 1 * 64 = 64px
+            const targetHeight = length * cellSize; // e.g., 2 * 64 = 128px
+            const scaleX = targetWidth / carSprite.width;
+            const scaleY = targetHeight / carSprite.height;
+            const scale = Math.min(scaleX, scaleY); // Use the smaller scale to fit both dimensions
+            carSprite.setScale(scale);
+            
             carSprite.setDepth(10);
             
             // Car object with charging state

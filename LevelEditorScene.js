@@ -5,7 +5,7 @@ class LevelEditorScene extends Phaser.Scene {
     }
 
     init() {
-        this.cars = [];               // Array of placed cars {sprite, type, gridRow, gridCol, isHorizontal}
+        this.cars = [];               // Array of placed cars {sprite, type, gridRow, gridCol, orientation, width, length}
         this.selectedCar = null;      // Currently selected car
         this.selectedCarType = 'car'; // Current car type from dropdown
         this.isDragging = false;
@@ -298,28 +298,17 @@ class LevelEditorScene extends Phaser.Scene {
             this.redrawParkingAndRoad();
         });
         
-        // Cell Size control
-        this.add.text(labelX, startY + lineHeight * 2, 'Cell Size:', {
-            fontSize: '14px',
-            fontFamily: CONFIG.FONT_FAMILY,
-            color: '#000000'
-        });
-        
-        const cellSizeInput = this.createInput(inputX, startY + lineHeight * 2, this.cellSize, (value) => {
-            this.cellSize = Math.max(40, Math.min(120, value));
-            this.parkingWidth = this.gridCols * this.cellSize;
-            this.parkingHeight = this.gridRows * this.cellSize;
-            this.redrawParkingAndRoad();
-        });
+        // Cell Size is fixed at 64px (defined in CONFIG.EDITOR.CELL_SIZE)
+        // No UI control needed - it's the standard size
         
         // Road Width control
-        this.add.text(labelX, startY + lineHeight * 3, 'Road Width:', {
+        this.add.text(labelX, startY + lineHeight * 2, 'Road Width:', {
             fontSize: '14px',
             fontFamily: CONFIG.FONT_FAMILY,
             color: '#000000'
         });
         
-        const roadWidthInput = this.createInput(inputX, startY + lineHeight * 3, this.roadWidth, (value) => {
+        const roadWidthInput = this.createInput(inputX, startY + lineHeight * 2, this.roadWidth, (value) => {
             this.roadWidth = Math.max(5, Math.min(100, value));
             this.redrawParkingAndRoad();
         });
@@ -417,11 +406,69 @@ class LevelEditorScene extends Phaser.Scene {
     rotate90Degrees() {
         if (!this.selectedCar) return;
         
-        // Toggle between horizontal (0°) and vertical (90°)
-        this.selectedCar.isHorizontal = !this.selectedCar.isHorizontal;
-        this.selectedCar.sprite.angle = this.selectedCar.isHorizontal ? 0 : 90;
+        // Clear old grid position
+        this.markGridOccupied(
+            this.selectedCar.gridRow, 
+            this.selectedCar.gridCol, 
+            this.selectedCar.orientation, 
+            false, 
+            this.selectedCar.width, 
+            this.selectedCar.length
+        );
         
-        console.log('Car orientation:', this.selectedCar.isHorizontal ? 'Horizontal' : 'Vertical');
+        // Cycle through orientations: up -> right -> down -> left -> up
+        const orientations = ['up', 'right', 'down', 'left'];
+        const currentIndex = orientations.indexOf(this.selectedCar.orientation);
+        const nextIndex = (currentIndex + 1) % 4;
+        this.selectedCar.orientation = orientations[nextIndex];
+        
+        // Update sprite angle
+        this.selectedCar.sprite.angle = this.getRotationAngle(this.selectedCar.orientation);
+        
+        // Check if car fits in new orientation (anchor stays same)
+        if (!this.canPlaceCar(
+            this.selectedCar.gridRow, 
+            this.selectedCar.gridCol, 
+            this.selectedCar.orientation, 
+            this.selectedCar.width, 
+            this.selectedCar.length
+        )) {
+            // Doesn't fit, revert orientation
+            this.selectedCar.orientation = orientations[currentIndex];
+            this.selectedCar.sprite.angle = this.getRotationAngle(this.selectedCar.orientation);
+            console.log('Cannot rotate - no space');
+        }
+        
+        // Mark new grid position
+        this.markGridOccupied(
+            this.selectedCar.gridRow, 
+            this.selectedCar.gridCol, 
+            this.selectedCar.orientation, 
+            true, 
+            this.selectedCar.width, 
+            this.selectedCar.length
+        );
+        
+        // Recalculate sprite position (center of occupied cells)
+        const cells = this.getOccupiedCells(
+            this.selectedCar.gridRow, 
+            this.selectedCar.gridCol, 
+            this.selectedCar.orientation, 
+            this.selectedCar.width, 
+            this.selectedCar.length
+        );
+        let sumRow = 0, sumCol = 0;
+        for (let cell of cells) {
+            sumRow += cell.row;
+            sumCol += cell.col;
+        }
+        const centerRow = sumRow / cells.length;
+        const centerCol = sumCol / cells.length;
+        
+        this.selectedCar.sprite.x = this.gridStartX + centerCol * this.cellSize + this.cellSize / 2;
+        this.selectedCar.sprite.y = this.gridStartY + centerRow * this.cellSize + this.cellSize / 2;
+        
+        console.log('Car orientation:', this.selectedCar.orientation);
     }
     
     updateRotationInputPosition() {
@@ -440,117 +487,206 @@ class LevelEditorScene extends Phaser.Scene {
         // No longer needed - rotation button is part of the panel
     }
 
-    // Parse vehicle dimensions from filename (e.g., "car_1x2" means 1 cell wide, 2 cells tall)
+    // Parse vehicle dimensions from filename (e.g., "car_1x2" means 1 cell wide, 2 cells long)
+    // Width = perpendicular width, Length = how many cells it extends in the direction it faces
+    // Sprite is always provided in vertical (up) orientation
     getVehicleDimensions(vehicleType) {
         // Default dimensions (backward compatibility)
-        let width = 2;
-        let height = 1;
+        let width = 1;   // Perpendicular width
+        let length = 2;  // Extends this many cells in facing direction
         
-        // Parse format: vehicleName_WxH (e.g., car_1x2, jeep_3x2)
+        // Parse format: vehicleName_WxL (e.g., car_1x2 means 1 wide, 2 long)
         const match = vehicleType.match(/_(\d+)x(\d+)$/);
         if (match) {
-            width = parseInt(match[1]);  // Width in cells (horizontal)
-            height = parseInt(match[2]); // Height in cells (vertical)
+            width = parseInt(match[1]);   // Perpendicular width
+            length = parseInt(match[2]);  // Length (extends in direction)
         }
         
-        return { width, height };
+        return { width, length };
+    }
+
+    // Get all cells occupied by a vehicle based on its anchor cell and orientation
+    // Anchor cell is the rear/bottom of the vehicle
+    getOccupiedCells(anchorRow, anchorCol, orientation, width, length) {
+        const cells = [];
+        
+        switch(orientation) {
+            case 'up':
+                // Car faces up, extends upward from anchor
+                for (let i = 0; i < length; i++) {
+                    for (let j = 0; j < width; j++) {
+                        cells.push({ row: anchorRow - i, col: anchorCol + j });
+                    }
+                }
+                break;
+            case 'down':
+                // Car faces down, extends downward from anchor
+                for (let i = 0; i < length; i++) {
+                    for (let j = 0; j < width; j++) {
+                        cells.push({ row: anchorRow + i, col: anchorCol + j });
+                    }
+                }
+                break;
+            case 'left':
+                // Car faces left, extends leftward from anchor
+                for (let i = 0; i < length; i++) {
+                    for (let j = 0; j < width; j++) {
+                        cells.push({ row: anchorRow + j, col: anchorCol - i });
+                    }
+                }
+                break;
+            case 'right':
+                // Car faces right, extends rightward from anchor
+                for (let i = 0; i < length; i++) {
+                    for (let j = 0; j < width; j++) {
+                        cells.push({ row: anchorRow + j, col: anchorCol + i });
+                    }
+                }
+                break;
+        }
+        
+        return cells;
+    }
+
+    // Get sprite rotation angle for each orientation
+    getRotationAngle(orientation) {
+        const angles = {
+            'up': 0,
+            'right': 90,
+            'down': 180,
+            'left': 270
+        };
+        return angles[orientation] || 0;
     }
 
     spawnCar() {
         // Get vehicle dimensions from the selected car type name
         const dimensions = this.getVehicleDimensions(this.selectedCarType);
-        const { width, height } = dimensions;
+        const { width, length } = dimensions;
         
         // Find center grid position for spawning
         const centerCol = Math.floor(this.gridCols / 2);
         const centerRow = Math.floor(this.gridRows / 2);
         
-        // Try to spawn horizontally first
-        if (this.canPlaceCar(centerRow, centerCol, true, width, height)) {
-            this.createCarAtGrid(centerRow, centerCol, true, width, height);
-        } else if (this.canPlaceCar(centerRow, centerCol, false, width, height)) {
-            // Try vertical if horizontal doesn't fit
-            this.createCarAtGrid(centerRow, centerCol, false, width, height);
+        // Try to spawn facing up first
+        if (this.canPlaceCar(centerRow, centerCol, 'up', width, length)) {
+            this.createCarAtGrid(centerRow, centerCol, 'up', width, length);
+        } else if (this.canPlaceCar(centerRow, centerCol, 'right', width, length)) {
+            // Try right if up doesn't fit
+            this.createCarAtGrid(centerRow, centerCol, 'right', width, length);
+        } else if (this.canPlaceCar(centerRow, centerCol, 'down', width, length)) {
+            // Try down
+            this.createCarAtGrid(centerRow, centerCol, 'down', width, length);
+        } else if (this.canPlaceCar(centerRow, centerCol, 'left', width, length)) {
+            // Try left
+            this.createCarAtGrid(centerRow, centerCol, 'left', width, length);
         } else {
             console.log('Cannot spawn car - no space at center');
         }
     }
     
-    canPlaceCar(row, col, isHorizontal, width, height) {
-        // Check if car can fit at this position based on its dimensions
-        if (isHorizontal) {
-            // Horizontal: car uses 'width' cells horizontally and 'height' cells vertically
-            if (col + width > this.gridCols || row + height > this.gridRows) return false;
-            // Check all cells that the car would occupy
-            for (let r = row; r < row + height; r++) {
-                for (let c = col; c < col + width; c++) {
-                    if (this.gridOccupied[r][c]) return false;
-                }
+    canPlaceCar(anchorRow, anchorCol, orientation, width, length) {
+        // Get all cells this car would occupy
+        const cells = this.getOccupiedCells(anchorRow, anchorCol, orientation, width, length);
+        
+        // Check if all cells are valid and unoccupied
+        for (let cell of cells) {
+            // Check bounds
+            if (cell.row < 0 || cell.row >= this.gridRows || 
+                cell.col < 0 || cell.col >= this.gridCols) {
+                return false;
             }
-            return true;
-        } else {
-            // Vertical (90° rotation): width and height are swapped
-            if (col + height > this.gridCols || row + width > this.gridRows) return false;
-            // Check all cells that the car would occupy
-            for (let r = row; r < row + width; r++) {
-                for (let c = col; c < col + height; c++) {
-                    if (this.gridOccupied[r][c]) return false;
-                }
+            // Check if occupied
+            if (this.gridOccupied[cell.row][cell.col]) {
+                return false;
             }
-            return true;
         }
+        
+        return true;
     }
     
-    createCarAtGrid(row, col, isHorizontal, width, height) {
-        // Calculate pixel position (center of car span)
-        const cellCenterX = this.gridStartX + col * this.cellSize + this.cellSize / 2;
-        const cellCenterY = this.gridStartY + row * this.cellSize + this.cellSize / 2;
+    createCarAtGrid(anchorRow, anchorCol, orientation, width, length) {
+        // Get all occupied cells
+        const cells = this.getOccupiedCells(anchorRow, anchorCol, orientation, width, length);
         
-        let carX, carY;
-        if (isHorizontal) {
-            // Car spans 'width' cells horizontally and 'height' cells vertically
-            carX = cellCenterX + (width - 1) * this.cellSize / 2;
-            carY = cellCenterY + (height - 1) * this.cellSize / 2;
-        } else {
-            // Vertical (90° rotation): dimensions are swapped
-            carX = cellCenterX + (height - 1) * this.cellSize / 2;
-            carY = cellCenterY + (width - 1) * this.cellSize / 2;
+        // Calculate center position as average of all occupied cells
+        let sumRow = 0, sumCol = 0;
+        for (let cell of cells) {
+            sumRow += cell.row;
+            sumCol += cell.col;
         }
+        const centerRow = sumRow / cells.length;
+        const centerCol = sumCol / cells.length;
+        
+        // Convert to pixel position (center of the averaged cell)
+        const carX = this.gridStartX + centerCol * this.cellSize + this.cellSize / 2;
+        const carY = this.gridStartY + centerRow * this.cellSize + this.cellSize / 2;
         
         // Create car sprite
         const carSprite = this.add.sprite(carX, carY, this.selectedCarType);
         carSprite.setOrigin(0.5);
         carSprite.setInteractive({ useHandCursor: true, draggable: true });
-        carSprite.setScale(0.3);
+        
+        // Calculate sprite scale to fit in grid cells
+        // For a car_1x2 (width=1, length=2), it should fit in 64x128 pixels
+        const targetWidth = width * this.cellSize;   // e.g., 1 * 64 = 64px
+        const targetHeight = length * this.cellSize; // e.g., 2 * 64 = 128px
+        const scaleX = targetWidth / carSprite.width;
+        const scaleY = targetHeight / carSprite.height;
+        const scale = Math.min(scaleX, scaleY); // Use the smaller scale to fit both dimensions
+        carSprite.setScale(scale);
+        
         carSprite.setDepth(10);
-        carSprite.angle = isHorizontal ? 0 : 90;
+        carSprite.angle = this.getRotationAngle(orientation);
         
         // Store car data
         const carData = {
             sprite: carSprite,
             type: this.selectedCarType,
-            gridRow: row,
-            gridCol: col,
-            isHorizontal: isHorizontal,
-            width: width,
-            height: height
+            gridRow: anchorRow,      // Anchor cell (rear of car)
+            gridCol: anchorCol,
+            orientation: orientation,  // 'up', 'down', 'left', 'right'
+            width: width,              // Perpendicular width
+            length: length             // Length in facing direction
         };
         
         this.cars.push(carData);
         
         // Mark grid cells as occupied
-        this.markGridOccupied(row, col, isHorizontal, true, width, height);
+        this.markGridOccupied(anchorRow, anchorCol, orientation, true, width, length);
+        
+        // Track if car is actually being dragged (to avoid triggering snap on click)
+        let wasDragged = false;
+        let startX, startY;
         
         // Setup drag handlers
+        carSprite.on('dragstart', (pointer) => {
+            wasDragged = false;
+            startX = carSprite.x;
+            startY = carSprite.y;
+        });
+        
         carSprite.on('drag', (pointer, dragX, dragY) => {
+            // Check if moved more than a few pixels (to distinguish from click)
+            const distance = Phaser.Math.Distance.Between(startX, startY, dragX, dragY);
+            if (distance > 5) {
+                wasDragged = true;
+            }
+            
             // Just move sprite visually during drag
             carSprite.x = dragX;
             carSprite.y = dragY;
         });
         
         carSprite.on('dragend', (pointer) => {
-            // Snap to nearest grid cell
-            this.snapCarToGrid(carData);
+            // Only snap to grid if car was actually dragged
+            if (wasDragged) {
+                this.snapCarToGrid(carData);
+            } else {
+                // Not dragged, just clicked - reset position
+                carSprite.x = startX;
+                carSprite.y = startY;
+            }
         });
         
         carSprite.on('pointerdown', (pointer) => {
@@ -561,30 +697,22 @@ class LevelEditorScene extends Phaser.Scene {
         // Auto-select the newly spawned car
         this.selectCar(carData);
         
-        console.log('Spawned car at grid:', row, col, 'orientation:', isHorizontal ? 'horizontal' : 'vertical', 'dimensions:', width + 'x' + height);
+        console.log('Spawned car at anchor:', anchorRow, anchorCol, 'orientation:', orientation, 'dimensions:', width + 'x' + length);
     }
     
-    markGridOccupied(row, col, isHorizontal, occupied, width, height) {
-        if (isHorizontal) {
-            // Horizontal: car uses 'width' cells horizontally and 'height' cells vertically
-            for (let r = row; r < row + height; r++) {
-                for (let c = col; c < col + width; c++) {
-                    this.gridOccupied[r][c] = occupied;
-                }
-            }
-        } else {
-            // Vertical (90° rotation): width and height are swapped
-            for (let r = row; r < row + width; r++) {
-                for (let c = col; c < col + height; c++) {
-                    this.gridOccupied[r][c] = occupied;
-                }
+    markGridOccupied(anchorRow, anchorCol, orientation, occupied, width, length) {
+        const cells = this.getOccupiedCells(anchorRow, anchorCol, orientation, width, length);
+        for (let cell of cells) {
+            if (cell.row >= 0 && cell.row < this.gridRows && 
+                cell.col >= 0 && cell.col < this.gridCols) {
+                this.gridOccupied[cell.row][cell.col] = occupied;
             }
         }
     }
     
     snapCarToGrid(carData) {
         // Clear old grid position
-        this.markGridOccupied(carData.gridRow, carData.gridCol, carData.isHorizontal, false, carData.width, carData.height);
+        this.markGridOccupied(carData.gridRow, carData.gridCol, carData.orientation, false, carData.width, carData.length);
         
         // Find nearest grid cell to car center
         const relX = carData.sprite.x - this.gridStartX;
@@ -597,25 +725,26 @@ class LevelEditorScene extends Phaser.Scene {
         nearestCol = Phaser.Math.Clamp(nearestCol, 0, this.gridCols - 1);
         nearestRow = Phaser.Math.Clamp(nearestRow, 0, this.gridRows - 1);
         
-        // Check if car can fit at new position
-        if (this.canPlaceCar(nearestRow, nearestCol, carData.isHorizontal, carData.width, carData.height)) {
-            // Valid position - update car
+        // Check if car can fit at new anchor position
+        if (this.canPlaceCar(nearestRow, nearestCol, carData.orientation, carData.width, carData.length)) {
+            // Valid position - update car anchor
             carData.gridRow = nearestRow;
             carData.gridCol = nearestCol;
-            this.markGridOccupied(nearestRow, nearestCol, carData.isHorizontal, true, carData.width, carData.height);
+            this.markGridOccupied(nearestRow, nearestCol, carData.orientation, true, carData.width, carData.length);
         }
         
-        // Position car at grid location (recalculate pixel position)
-        const cellCenterX = this.gridStartX + carData.gridCol * this.cellSize + this.cellSize / 2;
-        const cellCenterY = this.gridStartY + carData.gridRow * this.cellSize + this.cellSize / 2;
-        
-        if (carData.isHorizontal) {
-            carData.sprite.x = cellCenterX + (carData.width - 1) * this.cellSize / 2;
-            carData.sprite.y = cellCenterY + (carData.height - 1) * this.cellSize / 2;
-        } else {
-            carData.sprite.x = cellCenterX + (carData.height - 1) * this.cellSize / 2;
-            carData.sprite.y = cellCenterY + (carData.width - 1) * this.cellSize / 2;
+        // Recalculate pixel position from anchor and occupied cells
+        const cells = this.getOccupiedCells(carData.gridRow, carData.gridCol, carData.orientation, carData.width, carData.length);
+        let sumRow = 0, sumCol = 0;
+        for (let cell of cells) {
+            sumRow += cell.row;
+            sumCol += cell.col;
         }
+        const centerRow = sumRow / cells.length;
+        const centerCol = sumCol / cells.length;
+        
+        carData.sprite.x = this.gridStartX + centerCol * this.cellSize + this.cellSize / 2;
+        carData.sprite.y = this.gridStartY + centerRow * this.cellSize + this.cellSize / 2;
     }
 
     selectCar(carData) {
@@ -646,7 +775,7 @@ class LevelEditorScene extends Phaser.Scene {
         if (!this.selectedCar) return;
         
         // Clear grid occupation
-        this.markGridOccupied(this.selectedCar.gridRow, this.selectedCar.gridCol, this.selectedCar.isHorizontal, false, this.selectedCar.width, this.selectedCar.height);
+        this.markGridOccupied(this.selectedCar.gridRow, this.selectedCar.gridCol, this.selectedCar.orientation, false, this.selectedCar.width, this.selectedCar.length);
         
         // Remove from array
         const index = this.cars.indexOf(this.selectedCar);
@@ -708,9 +837,9 @@ class LevelEditorScene extends Phaser.Scene {
                 type: carData.type,
                 gridRow: carData.gridRow,
                 gridCol: carData.gridCol,
-                isHorizontal: carData.isHorizontal,
+                orientation: carData.orientation,
                 width: carData.width,
-                height: carData.height,
+                length: carData.length,
                 chargeRequired: 100 // Default charge required
             }))
         };

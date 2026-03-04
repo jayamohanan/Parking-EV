@@ -246,7 +246,7 @@ var CONFIG = {
         // Grid configuration (like Parking Jam 3D)
         GRID_COLS: 6,                  // Number of columns in parking grid
         GRID_ROWS: 6,                  // Number of rows in parking grid
-        CELL_SIZE: 80,                 // Size of each grid cell (pixels)
+        CELL_SIZE: 64,                 // Size of each grid cell (pixels) - STANDARD SIZE
         GRID_LINE_COLOR: 0xCCCCCC,     // Grid line color
         GRID_LINE_WIDTH: 2,            // Grid line thickness
         GRID_LINE_ALPHA: 0.5,          // Grid line transparency
