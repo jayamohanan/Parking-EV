@@ -212,37 +212,57 @@ class LevelEditorScene extends Phaser.Scene {
         return path;
     }
     
-    // Draw road with texture along the path
+    // Draw road with texture along the path using mesh for seamless rendering
     drawRoadWithTexture() {
-        // Create road sprites container
-        if (!this.roadSprites) {
-            this.roadSprites = [];
-        }
-        
         // Sample points along the path
-        const numSegments = 200; // Higher number = smoother road
+        const numSegments = 100; // Higher = smoother
         const points = [];
+        
         for (let i = 0; i <= numSegments; i++) {
             const t = i / numSegments;
             const point = this.roadPath.getPoint(t);
             points.push(point);
         }
         
-        // Create tiled sprites along the path
+        // Calculate tangents from consecutive points
+        const tangents = [];
+        for (let i = 0; i < points.length; i++) {
+            let tangent;
+            if (i < points.length - 1) {
+                // Use direction to next point
+                const dx = points[i + 1].x - points[i].x;
+                const dy = points[i + 1].y - points[i].y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                tangent = { x: dx / length, y: dy / length };
+            } else {
+                // Last point - use direction from previous point
+                const dx = points[i].x - points[i - 1].x;
+                const dy = points[i].y - points[i - 1].y;
+                const length = Math.sqrt(dx * dx + dy * dy);
+                tangent = { x: dx / length, y: dy / length };
+            }
+            tangents.push(tangent);
+        }
+        
+        // Create small tileSprite segments along the curved path
+        this.roadSprites = [];
+        const halfWidth = this.roadWidth / 2;
+        
         for (let i = 0; i < points.length - 1; i++) {
             const p1 = points[i];
             const p2 = points[i + 1];
+            const t = tangents[i];
             
             // Calculate segment properties
             const dx = p2.x - p1.x;
             const dy = p2.y - p1.y;
-            const length = Math.sqrt(dx * dx + dy * dy);
+            const segmentLength = Math.sqrt(dx * dx + dy * dy);
             const angle = Math.atan2(dy, dx);
             
-            // Create tiled sprite for this segment
+            // Create tileSprite for this segment
             const roadSegment = this.add.tileSprite(
                 p1.x, p1.y,
-                length, this.roadWidth,
+                segmentLength, this.roadWidth,
                 'road'
             );
             roadSegment.setOrigin(0, 0.5);
@@ -252,23 +272,15 @@ class LevelEditorScene extends Phaser.Scene {
             this.roadSprites.push(roadSegment);
         }
         
-        // Draw center line guide
-        const centerLineGraphics = this.add.graphics();
-        centerLineGraphics.lineStyle(2, this.roadColor, 0.3);
-        this.roadPath.draw(centerLineGraphics);
-        centerLineGraphics.setDepth(2);
-        
-        // Store references
-        this.roadCenterGraphics = centerLineGraphics;
+        console.log('Road drawn with', this.roadSprites.length, 'segments');
     }
     
     redrawParkingAndRoad() {
         // Destroy existing graphics
         if (this.roadSprites) {
-            this.roadSprites.forEach(sprite => sprite.destroy());
+            this.roadSprites.forEach(s => s.destroy());
             this.roadSprites = [];
         }
-        if (this.roadCenterGraphics) this.roadCenterGraphics.destroy();
         if (this.parkingRect) this.parkingRect.destroy();
         if (this.gridGraphics) this.gridGraphics.destroy();
         

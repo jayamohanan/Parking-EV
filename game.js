@@ -425,16 +425,17 @@
                 roadData.innerRadius || 20
             );
             
-            // Draw road using tiled sprites
-            const numSegments = 200;
+            // Draw road using tileSprite segments
+            const numSegments = 100;
             const points = [];
+            
             for (let i = 0; i <= numSegments; i++) {
                 const t = i / numSegments;
                 const point = this.roadPath.getPoint(t);
                 points.push(point);
             }
             
-            // Create tiled sprites along the path
+            // Create small tileSprite segments along the curved path
             for (let i = 0; i < points.length - 1; i++) {
                 const p1 = points[i];
                 const p2 = points[i + 1];
@@ -442,25 +443,19 @@
                 // Calculate segment properties
                 const dx = p2.x - p1.x;
                 const dy = p2.y - p1.y;
-                const length = Math.sqrt(dx * dx + dy * dy);
+                const segmentLength = Math.sqrt(dx * dx + dy * dy);
                 const angle = Math.atan2(dy, dx);
                 
-                // Create tiled sprite for this segment
+                // Create tileSprite for this segment
                 const roadSegment = this.add.tileSprite(
                     p1.x, p1.y,
-                    length, roadData.width,
+                    segmentLength, roadData.width,
                     'road'
                 );
                 roadSegment.setOrigin(0, 0.5);
                 roadSegment.setRotation(angle);
                 roadSegment.setDepth(1);
             }
-            
-            // Draw road center line guide (optional, lighter)
-            const roadCenterGraphics = this.add.graphics();
-            roadCenterGraphics.lineStyle(2, roadData.color, 0.3);
-            this.roadPath.draw(roadCenterGraphics);
-            roadCenterGraphics.setDepth(2);
             
             // Draw parking area rectangle
             const parkingRect = this.add.rectangle(
