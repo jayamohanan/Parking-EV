@@ -425,37 +425,71 @@
                 roadData.innerRadius || 20
             );
             
-            // Draw road using tileSprite segments
-            const numSegments = 100;
+            // Draw road using Mesh for continuous texture
+            const numPoints = 200;
             const points = [];
             
-            for (let i = 0; i <= numSegments; i++) {
-                const t = i / numSegments;
+            for (let i = 0; i <= numPoints; i++) {
+                const t = i / numPoints;
                 const point = this.roadPath.getPoint(t);
                 points.push(point);
             }
             
-            // Create small tileSprite segments along the curved path
-            for (let i = 0; i < points.length - 1; i++) {
-                const p1 = points[i];
-                const p2 = points[i + 1];
-                
-                // Calculate segment properties
-                const dx = p2.x - p1.x;
-                const dy = p2.y - p1.y;
-                const segmentLength = Math.sqrt(dx * dx + dy * dy);
-                const angle = Math.atan2(dy, dx);
-                
-                // Create tileSprite for this segment
-                const roadSegment = this.add.tileSprite(
-                    p1.x, p1.y,
-                    segmentLength, roadData.width,
-                    'road'
-                );
-                roadSegment.setOrigin(0, 0.5);
-                roadSegment.setRotation(angle);
-                roadSegment.setDepth(1);
+            // Calculate tangents
+            const tangents = [];
+            for (let i = 0; i < points.length; i++) {
+                let tangent;
+                if (i < points.length - 1) {
+                    const dx = points[i + 1].x - points[i].x;
+                    const dy = points[i + 1].y - points[i].y;
+                    const length = Math.sqrt(dx * dx + dy * dy);
+                    tangent = { x: dx / length, y: dy / length };
+                } else {
+                    const dx = points[i].x - points[i - 1].x;
+                    const dy = points[i].y - points[i - 1].y;
+                    const length = Math.sqrt(dx * dx + dy * dy);
+                    tangent = { x: dx / length, y: dy / length };
+                }
+                tangents.push(tangent);
             }
+            
+            // Create mesh vertices and UVs
+            const vertices = [];
+            const uvs = [];
+            const indices = [];
+            const halfWidth = roadData.width / 2;
+            
+            // Create vertex pairs for each point
+            for (let i = 0; i < points.length; i++) {
+                const p = points[i];
+                const t = tangents[i];
+                
+                // Perpendicular to path direction
+                const nx = -t.y;
+                const ny = t.x;
+                
+                // Left edge vertex
+                vertices.push(p.x - nx * halfWidth, p.y - ny * halfWidth);
+                // Right edge vertex
+                vertices.push(p.x + nx * halfWidth, p.y + ny * halfWidth);
+                
+                // UV coordinates
+                const v = i / numPoints;
+                uvs.push(0, v);  // Left edge
+                uvs.push(1, v);  // Right edge
+            }
+            
+            // Create triangle strip indices
+            for (let i = 0; i < points.length - 1; i++) {
+                const idx = i * 2;
+                indices.push(idx, idx + 1, idx + 2);
+                indices.push(idx + 1, idx + 3, idx + 2);
+            }
+            
+            // Create mesh with road texture
+            const roadMesh = this.add.mesh(0, 0, 'road');
+            roadMesh.addVertices(vertices, uvs, indices);
+            roadMesh.setDepth(1);
             
             // Draw parking area rectangle
             const parkingRect = this.add.rectangle(

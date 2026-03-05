@@ -99,6 +99,15 @@ class LevelEditorScene extends Phaser.Scene {
         const halfParkingH = this.parkingHeight / 2;
         const roadOffset = this.roadWidth / 2; // Distance from parking edge to road center
         
+        // DEBUG
+        console.log('=== CREATE PARKING AND ROAD ===');
+        console.log('Scene dimensions:', sceneWidth, 'x', sceneHeight);
+        console.log('Editor height:', editorHeight);
+        console.log('Parking dimensions:', this.parkingWidth, 'x', this.parkingHeight);
+        console.log('Road width:', this.roadWidth);
+        console.log('Road offset from parking edge:', roadOffset);
+        console.log('===============================');
+        
         // Create curved path for road center line
         this.roadPath = this.createRoadPath(centerX, centerY, halfParkingW, halfParkingH, roadOffset);
         
@@ -157,6 +166,15 @@ class LevelEditorScene extends Phaser.Scene {
         // Corner radius (use outer radius for the road path)
         const radius = this.roadOuterRadius;
         
+        // DEBUG: Show road path parameters
+        console.log('=== ROAD PATH DEBUG ===');
+        console.log('Parking center:', centerX, centerY);
+        console.log('Parking half-size:', halfW, halfH);
+        console.log('Road offset:', offset);
+        console.log('Road bounds: left=', left, 'right=', right, 'top=', top, 'bottom=', bottom);
+        console.log('Corner radius:', radius);
+        console.log('=======================');
+        
         // Create rounded rectangle path - moving clockwise from top-left
         // Start at top-left corner (after the curve)
         path.moveTo(left + radius, top);
@@ -212,75 +230,89 @@ class LevelEditorScene extends Phaser.Scene {
         return path;
     }
     
-    // Draw road with texture along the path using mesh for seamless rendering
+    // Draw road with texture using Rope game object
     drawRoadWithTexture() {
-        // Sample points along the path
-        const numSegments = 100; // Higher = smoother
-        const points = [];
+        // Sample points along the center path
+        const numPoints = 150;
+        const worldPoints = [];
         
-        for (let i = 0; i <= numSegments; i++) {
-            const t = i / numSegments;
+        for (let i = 0; i <= numPoints; i++) {
+            const t = i / numPoints;
             const point = this.roadPath.getPoint(t);
-            points.push(point);
+            worldPoints.push(point);
         }
         
-        // Calculate tangents from consecutive points
-        const tangents = [];
-        for (let i = 0; i < points.length; i++) {
-            let tangent;
-            if (i < points.length - 1) {
-                // Use direction to next point
-                const dx = points[i + 1].x - points[i].x;
-                const dy = points[i + 1].y - points[i].y;
-                const length = Math.sqrt(dx * dx + dy * dy);
-                tangent = { x: dx / length, y: dy / length };
-            } else {
-                // Last point - use direction from previous point
-                const dx = points[i].x - points[i - 1].x;
-                const dy = points[i].y - points[i - 1].y;
-                const length = Math.sqrt(dx * dx + dy * dy);
-                tangent = { x: dx / length, y: dy / length };
-            }
-            tangents.push(tangent);
+        // Calculate bounding box to find rope origin
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        
+        for (let point of worldPoints) {
+            minX = Math.min(minX, point.x);
+            minY = Math.min(minY, point.y);
+            maxX = Math.max(maxX, point.x);
+            maxY = Math.max(maxY, point.y);
         }
         
-        // Create small tileSprite segments along the curved path
-        this.roadSprites = [];
-        const halfWidth = this.roadWidth / 2;
+        // Use center of bounding box as rope origin
+        const ropeOriginX = (minX + maxX) / 2;
+        const ropeOriginY = (minY + maxY) / 2;
         
-        for (let i = 0; i < points.length - 1; i++) {
-            const p1 = points[i];
-            const p2 = points[i + 1];
-            const t = tangents[i];
-            
-            // Calculate segment properties
-            const dx = p2.x - p1.x;
-            const dy = p2.y - p1.y;
-            const segmentLength = Math.sqrt(dx * dx + dy * dy);
-            const angle = Math.atan2(dy, dx);
-            
-            // Create tileSprite for this segment
-            const roadSegment = this.add.tileSprite(
-                p1.x, p1.y,
-                segmentLength, this.roadWidth,
-                'road'
-            );
-            roadSegment.setOrigin(0, 0.5);
-            roadSegment.setRotation(angle);
-            roadSegment.setDepth(1);
-            
-            this.roadSprites.push(roadSegment);
+        // Convert world points to relative points (relative to rope origin)
+        const relativePoints = worldPoints.map(p => ({
+            x: p.x - ropeOriginX,
+            y: p.y - ropeOriginY
+        }));
+        
+        // DEBUG: Show first 10 points and last 10 points
+        console.log('=== ROAD ROPE DEBUG ===');
+        console.log('Total points:', worldPoints.length);
+        console.log('Rope origin (world):', ropeOriginX.toFixed(2), ropeOriginY.toFixed(2));
+        console.log('First 10 world points:');
+        for (let i = 0; i < Math.min(10, worldPoints.length); i++) {
+            console.log(`  Point ${i}: world(${worldPoints[i].x.toFixed(2)}, ${worldPoints[i].y.toFixed(2)}) -> relative(${relativePoints[i].x.toFixed(2)}, ${relativePoints[i].y.toFixed(2)})`);
+        }
+        console.log('Last 10 world points:');
+        for (let i = Math.max(0, worldPoints.length - 10); i < worldPoints.length; i++) {
+            console.log(`  Point ${i}: world(${worldPoints[i].x.toFixed(2)}, ${worldPoints[i].y.toFixed(2)}) -> relative(${relativePoints[i].x.toFixed(2)}, ${relativePoints[i].y.toFixed(2)})`);
         }
         
-        console.log('Road drawn with', this.roadSprites.length, 'segments');
+        // Create rope with road texture at the rope origin with relative points
+        // Rope points are relative to the rope's x,y position
+        this.roadRope = this.add.rope(ropeOriginX, ropeOriginY, 'road', null, relativePoints);
+        console.log('>>> Rope created: this.add.rope(' + ropeOriginX.toFixed(2) + ', ' + ropeOriginY.toFixed(2) + ', "road", null, relativePoints)');
+        
+        // The rope stretches texture along points - scale to road width
+        const roadTexture = this.textures.get('road');
+        const textureHeight = roadTexture.getSourceImage().height;
+        
+        // Set vertical scale to achieve desired road width
+        const scaleY = this.roadWidth / textureHeight;
+        this.roadRope.setScale(1, scaleY);
+
+        this.roadRope.setDepth(1);
+        
+        // DEBUG: Draw dots at each world point to visualize the path
+        this.debugDots = this.add.graphics();
+        this.debugDots.fillStyle(0xff0000, 1); // Red dots
+        for (let i = 0; i < worldPoints.length; i++) {
+            this.debugDots.fillCircle(worldPoints[i].x, worldPoints[i].y, 3);
+        }
+        this.debugDots.setDepth(10); // Above everything
+        
+        // DEBUG: Draw origin point in blue
+        this.debugDots.fillStyle(0x0000ff, 1); // Blue dot for origin
+        this.debugDots.fillCircle(ropeOriginX, ropeOriginY, 8);
+        
+        console.log('Road rope created with', relativePoints.length, 'points, width:', this.roadWidth, 'scale:', scaleY);
+        console.log('Rope position:', ropeOriginX, ropeOriginY);
+        console.log('Rope object:', this.roadRope);
+        console.log('======================');
     }
     
     redrawParkingAndRoad() {
         // Destroy existing graphics
-        if (this.roadSprites) {
-            this.roadSprites.forEach(s => s.destroy());
-            this.roadSprites = [];
-        }
+        if (this.roadRope) this.roadRope.destroy();
+        if (this.debugDots) this.debugDots.destroy();
         if (this.parkingRect) this.parkingRect.destroy();
         if (this.gridGraphics) this.gridGraphics.destroy();
         
